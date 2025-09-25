@@ -1,0 +1,17 @@
+::c
+// C is the outermost block.
+printf("The final message from C is: %s\n", message);
+printf("The final array from C is: [%d, %d, %d]\n", a[0], a[1], a[2]);
+
+  ::py
+  # Python block with consistent indentation.
+  import json, sys
+  state = json.loads(sys.argv[1])
+  arr = state.get("initial_array", [])
+  arr.sort()
+  new_state = {"a": arr, "message": "A message from Python"}
+  print(json.dumps(new_state))
+
+    ::java
+    // Java is the innermost block. It runs first.
+    System.out.println("{\"initial_array\": [30, 10, 20]}");

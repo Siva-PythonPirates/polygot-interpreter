@@ -2,59 +2,51 @@ import subprocess
 import os
 import tempfile
 import shutil
+import textwrap
 
 def execute_in_docker(lang: str, code: str, state_json: str) -> str:
     """
-    Builds and runs a Docker container using direct CLI commands
-    via the subprocess module.
+    Builds and runs a Docker container, wrapping code in templates
+    and definitively fixing Python indentation.
     """
+    c_template = "#include <stdio.h>\n#include <string.h>\nint main() {{ {code} return 0; }}"
+    java_template = "import java.util.Arrays; import java.util.regex.*; public class Main {{ public static void main(String[] args) {{ {code} }} }}"
+
     lang_map = {
-        'c': ('main.c', 'c.Dockerfile', 'polyglot-c-runner'),
-        'py': ('script.py', 'py.Dockerfile', 'polyglot-py-runner'),
-        'java': ('Main.java', 'java.Dockerfile', 'polyglot-java-runner'),
+        'c': ('main.c', 'c.Dockerfile', 'polyglot-c-runner', c_template),
+        'py': ('script.py', 'py.Dockerfile', 'polyglot-py-runner', None),
+        'java': ('Main.java', 'java.Dockerfile', 'polyglot-java-runner', java_template),
     }
 
     if lang not in lang_map:
         raise ValueError(f"Unsupported language: {lang}")
 
-    filename, dockerfile_name, image_tag = lang_map[lang]
+    filename, dockerfile_name, image_tag, template = lang_map[lang]
+    
+    final_code = code
+    if lang == 'py':
+        final_code = textwrap.dedent(final_code)
+    
+    if template:
+        final_code = template.format(code=final_code)
 
-    # Use a temporary directory to avoid conflicts
     with tempfile.TemporaryDirectory() as temp_dir:
-        # Write the user's code and the correct Dockerfile to the temp directory
         with open(os.path.join(temp_dir, filename), 'w') as f:
-            f.write(code)
+            f.write(final_code)
         
-        # We assume the Dockerfiles are in the same directory as this script
+        # Assumes Dockerfiles are in the same directory as this script
         shutil.copyfile(dockerfile_name, os.path.join(temp_dir, dockerfile_name))
 
         try:
-            # --- Step 1: Build the Docker image using subprocess ---
-            build_command = [
-                "docker", "build",
-                "-t", image_tag,
-                "-f", dockerfile_name,
-                "." # The build context is the temporary directory
-            ]
-            # We run the command from within the temp_dir
+            build_command = ["docker", "build", "-t", image_tag, "-f", dockerfile_name, "."]
             subprocess.run(build_command, check=True, cwd=temp_dir, capture_output=True, text=True)
 
-            # --- Step 2: Run the container using subprocess ---
-            run_command = [
-                "docker", "run",
-                "--rm", # Automatically remove the container when it exits
-                image_tag,
-                state_json # Pass the state as a command-line argument
-            ]
+            run_command = ["docker", "run", "--rm", image_tag, state_json]
             result = subprocess.run(run_command, check=True, capture_output=True, text=True)
             
-            # The captured output from the container is in stdout
             return result.stdout.strip()
-
         except subprocess.CalledProcessError as e:
-            # If any docker command fails, we raise an error with the details
-            error_message = f"Docker command failed.\n"
-            error_message += f"Stderr: {e.stderr}"
+            error_message = f"Docker command failed.\nStderr: {e.stderr}"
             raise RuntimeError(error_message)
         except FileNotFoundError:
-             raise RuntimeError("Docker command not found. Is Docker installed and in your PATH?")
+             raise RuntimeError("Docker command not found. Is Docker installed?")

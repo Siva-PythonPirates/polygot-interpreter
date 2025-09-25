@@ -12,6 +12,9 @@
   --accent-blue-hover: #157ec5;
   --accent-green: #2c9a2c;
   --accent-red: #be1100;
+  --color-c: #61afef;
+  --color-py: #e5c07b;
+  --color-java: #e06c75;
 }
 * { box-sizing: border-box; }
 body {
@@ -34,7 +37,7 @@ header {
 header h1 { font-size: 1.2rem; margin: 0; }
 .main-layout {
   display: grid;
-  grid-template-columns: 280px 3fr 2fr; /* Controls | Editor | Output */
+  grid-template-columns: 280px 3fr 2fr;
   flex-grow: 1;
   height: calc(100vh - 58px);
 }
@@ -49,28 +52,17 @@ header h1 { font-size: 1.2rem; margin: 0; }
   padding: 0;
   border-left: 1px solid var(--border-color);
   border-right: 1px solid var(--border-color);
+  background-color: #282c34;
 }
 .output-pane { background-color: var(--bg-medium); }
 
 /* --- Controls Pane --- */
-.controls-pane h2 {
-  margin-top: 0;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid var(--border-color);
-  font-size: 1.1rem;
-}
+.controls-pane h2 { margin-top: 0; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border-color); font-size: 1.1rem; }
 .run-button, .upload-button {
   display: flex; align-items: center; justify-content: center;
-  width: 100%;
-  padding: 0.75rem;
-  margin-bottom: 0.75rem;
-  border: none;
-  border-radius: 5px;
-  font-size: 1rem;
-  font-weight: bold;
-  cursor: pointer;
-  transition: background-color 0.2s;
-  gap: 0.5rem;
+  width: 100%; padding: 0.75rem; margin-bottom: 0.75rem;
+  border: none; border-radius: 5px; font-size: 1rem; font-weight: bold;
+  cursor: pointer; transition: background-color 0.2s; gap: 0.5rem;
 }
 .run-button svg, .upload-button svg { fill: white; }
 .run-button { background-color: var(--accent-green); color: white; }
@@ -78,64 +70,65 @@ header h1 { font-size: 1.2rem; margin: 0; }
 .upload-button { background-color: var(--accent-blue); color: white; }
 .upload-button:hover { background-color: var(--accent-blue-hover); }
 .run-button:disabled { background-color: #555; cursor: not-allowed; }
-.instructions {
-  margin-top: 2rem;
-  font-size: 0.9rem;
-  color: var(--text-secondary);
-}
+.instructions { margin-top: 2rem; font-size: 0.9rem; color: var(--text-secondary); }
 .instructions ol { padding-left: 1.2rem; }
 .instructions li { margin-bottom: 0.5rem; }
 
-/* --- Editor Pane --- */
+/* --- Editor Pane (Final) --- */
 .code-editor {
-  font-family: var(--font-mono);
-  font-size: 14px;
+  font-family: var(--font-mono) !important;
+  font-size: 14px !important;
   min-height: 100%;
-  background-color: var(--bg-dark);
 }
-.code-editor:focus-within { outline: none; }
-.lang-block {
-  display: block;
-  border-left: 3px solid transparent;
-  padding-left: 10px;
-  margin-left: -13px; /* Counteract padding */
-  transition: background-color 0.3s;
+.code-editor > textarea { -webkit-text-fill-color: transparent !important; }
+.code-editor > textarea, .code-editor > pre {
+  outline: none;
+  white-space: pre-wrap !important;
+  word-wrap: break-word !important;
 }
-.lang-tag { display: block; font-weight: bold; opacity: 0.5; }
-/* Language Colors */
-.lang-c { border-left-color: #5c8dff; background-color: rgba(92, 141, 255, 0.05); }
-.lang-py { border-left-color: #ffd866; background-color: rgba(255, 216, 102, 0.05); }
-.lang-java { border-left-color: #ff6b6b; background-color: rgba(255, 107, 107, 0.05); }
+
+/* More specific selector to override Prism's theme */
+.code-editor .lang-tag-open {
+  position: relative;
+  display: inline-block;
+  font-weight: bold;
+  opacity: 0.8;
+  padding-left: 12px;
+}
+.code-editor .lang-tag-open::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: 3px;
+  border-radius: 2px;
+}
+.code-editor .lang-tag-open[data-lang="c"] { color: var(--color-c) !important; }
+.code-editor .lang-tag-open[data-lang="c"]::before { background-color: var(--color-c); }
+.code-editor .lang-tag-open[data-lang="py"] { color: var(--color-py) !important; }
+.code-editor .lang-tag-open[data-lang="py"]::before { background-color: var(--color-py); }
+.code-editor .lang-tag-open[data-lang="java"] { color: var(--color-java) !important; }
+.code-editor .lang-tag-open[data-lang="java"]::before { background-color: var(--color-java); }
+
 
 /* --- Output Pane --- */
-.output-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0.5rem;
-}
+.output-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
 .output-header h2 { font-size: 1.1rem; margin: 0; }
 .output-header button {
   background: var(--bg-light); border: 1px solid var(--border-color);
-  color: var(--text-primary); border-radius: 4px; padding: 0.2rem 0.5rem;
-  cursor: pointer;
+  color: var(--text-primary); border-radius: 4px; padding: 0.2rem 0.5rem; cursor: pointer;
 }
 .output-header button:disabled { opacity: 0.4; cursor: not-allowed; }
 .output-log {
-  white-space: pre-wrap; word-wrap: break-word;
-  margin: 0; font-family: var(--font-mono);
-  font-size: 0.9rem;
-  color: var(--text-secondary);
+  white-space: pre-wrap; word-wrap: break-word; margin: 0;
+  font-family: var(--font-mono); font-size: 0.9rem; color: var(--text-secondary);
 }
 
 /* --- Status Indicator --- */
 .status {
-  padding: 0.25rem 0.75rem;
-  border-radius: 99px;
-  font-size: 0.8rem;
-  font-weight: bold;
-  background-color: var(--accent-red);
-  color: white;
+  padding: 0.25rem 0.75rem; border-radius: 99px; font-size: 0.8rem;
+  font-weight: bold; background-color: var(--accent-red); color: white;
 }
 .status.connected { background-color: var(--accent-green); }
 
