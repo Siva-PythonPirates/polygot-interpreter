@@ -15,6 +15,9 @@
   --color-c: #61afef;
   --color-py: #e5c07b;
   --color-java: #e06c75;
+  --color-c-bg: rgba(97, 175, 239, 0.1);
+  --color-py-bg: rgba(229, 192, 123, 0.1);
+  --color-java-bg: rgba(224, 108, 117, 0.1);
 }
 * { box-sizing: border-box; }
 body {
@@ -74,42 +77,161 @@ header h1 { font-size: 1.2rem; margin: 0; }
 .instructions ol { padding-left: 1.2rem; }
 .instructions li { margin-bottom: 0.5rem; }
 
-/* --- Editor Pane (Final) --- */
+/* --- Editor Pane --- */
 .code-editor {
   font-family: var(--font-mono) !important;
   font-size: 14px !important;
   min-height: 100%;
+  line-height: 1.5 !important;
+  position: relative;
 }
-.code-editor > textarea { -webkit-text-fill-color: transparent !important; }
+
+.code-editor > textarea { 
+  -webkit-text-fill-color: transparent !important;
+  color: transparent !important;
+  caret-color: white !important;
+  background: transparent !important;
+  resize: none !important;
+  border: none !important;
+  outline: none !important;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100% !important;
+  height: 100% !important;
+  z-index: 2;
+}
+
+.code-editor > pre {
+  outline: none !important;
+  border: none !important;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100% !important;
+  height: 100% !important;
+  z-index: 1;
+  pointer-events: none;
+  overflow: hidden;
+}
+
 .code-editor > textarea, .code-editor > pre {
-  outline: none;
   white-space: pre-wrap !important;
   word-wrap: break-word !important;
+  font-family: var(--font-mono) !important;
+  font-size: 14px !important;
+  line-height: 1.5 !important;
+  margin: 0 !important;
+  padding: 15px !important;
+  box-sizing: border-box !important;
+}
+
+/* Depth-based Color Scheme */
+:root {
+  --depth-0-bg: rgba(97, 175, 239, 0.15);   /* Blue */
+  --depth-0-border: #61afef;
+  --depth-1-bg: rgba(255, 165, 0, 0.15);    /* Orange */
+  --depth-1-border: #ff9500;
+  --depth-2-bg: rgba(76, 175, 80, 0.15);    /* Green */
+  --depth-2-border: #4caf50;
+  --depth-3-bg: rgba(156, 39, 176, 0.15);   /* Purple */
+  --depth-3-border: #9c27b0;
+  --depth-4-bg: rgba(244, 67, 54, 0.15);    /* Red */
+  --depth-4-border: #f44336;
+}
+
+/* Language Block Styling - Minimal for perfect alignment */
+.code-editor .lang-block {
+  display: inline;
+  border-radius: 2px;
+  padding: 0px 2px;
+  margin: 0;
+  white-space: pre-wrap;
+  position: relative;
+}
+
+/* Depth-based backgrounds only (no left borders) */
+.code-editor .lang-block.depth-0 {
+  background-color: var(--depth-0-bg);
+}
+
+.code-editor .lang-block.depth-1 {
+  background-color: var(--depth-1-bg);
+}
+
+.code-editor .lang-block.depth-2 {
+  background-color: var(--depth-2-bg);
+}
+
+.code-editor .lang-block.depth-3 {
+  background-color: var(--depth-3-bg);
+}
+
+.code-editor .lang-block.depth-4 {
+  background-color: var(--depth-4-bg);
+}
+
+/* Language Tag Styling - Minimal styling for alignment */
+.code-editor .lang-tag {
+  font-weight: bold;
+  opacity: 0.9;
+  font-size: 1em;
+  padding: 0px 2px;
+  border-radius: 2px;
+  margin: 0;
+  display: inline;
+}
+
+/* Color-based tag styling - background only, consistent typography */
+.code-editor .lang-tag.color-blue {
+  color: var(--depth-0-border) !important;
+  background-color: var(--depth-0-bg);
+  font-size: 14px !important;
+  line-height: 1.5 !important;
+}
+
+.code-editor .lang-tag.color-orange {
+  color: var(--depth-1-border) !important;
+  background-color: var(--depth-1-bg);
+  font-size: 14px !important;
+  line-height: 1.5 !important;
+}
+
+.code-editor .lang-tag.color-green {
+  color: var(--depth-2-border) !important;
+  background-color: var(--depth-2-bg);
+  font-size: 14px !important;
+  line-height: 1.5 !important;
+}
+
+.code-editor .lang-tag.color-purple {
+  color: var(--depth-3-border) !important;
+  background-color: var(--depth-3-bg);
+  font-size: 14px !important;
+  line-height: 1.5 !important;
+}
+
+.code-editor .lang-tag.color-red {
+  color: var(--depth-4-border) !important;
+  background-color: var(--depth-4-bg);
+  font-size: 14px !important;
+  line-height: 1.5 !important;
+}
+
+/* Preserve indentation */
+.code-editor pre {
+  margin: 0;
+  white-space: pre-wrap;
+  tab-size: 4;
+}
+
+/* Ensure proper text flow */
+.code-editor .lang-block * {
+  white-space: pre-wrap;
 }
 
 /* More specific selector to override Prism's theme */
-.code-editor .lang-tag-open {
-  position: relative;
-  display: inline-block;
-  font-weight: bold;
-  opacity: 0.8;
-  padding-left: 12px;
-}
-.code-editor .lang-tag-open::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  height: 100%;
-  width: 3px;
-  border-radius: 2px;
-}
-.code-editor .lang-tag-open[data-lang="c"] { color: var(--color-c) !important; }
-.code-editor .lang-tag-open[data-lang="c"]::before { background-color: var(--color-c); }
-.code-editor .lang-tag-open[data-lang="py"] { color: var(--color-py) !important; }
-.code-editor .lang-tag-open[data-lang="py"]::before { background-color: var(--color-py); }
-.code-editor .lang-tag-open[data-lang="java"] { color: var(--color-java) !important; }
-.code-editor .lang-tag-open[data-lang="java"]::before { background-color: var(--color-java); }
+
 
 
 /* --- Output Pane --- */
