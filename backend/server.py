@@ -33,6 +33,28 @@ async def get_debug_status():
     """Get current debug mode status"""
     return {"debug_mode": get_debug_mode()}
 
+@app.get("/version")
+async def get_version():
+    """Get backend version and features"""
+    # Test if nested functionality is available
+    try:
+        from advanced_orchestrator import parse_nested_structure
+        nested_available = True
+    except ImportError:
+        nested_available = False
+    
+    return {
+        "version": "3.0-nested",
+        "build_date": "2025-09-26", 
+        "features": {
+            "sequential_execution": True,
+            "nested_blocks": nested_available,
+            "cross_language_variables": True,
+            "debug_mode": True
+        },
+        "status": "ready"
+    }
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
