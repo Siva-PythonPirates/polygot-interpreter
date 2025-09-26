@@ -33,4 +33,4 @@ def run_pipeline(polyglot_code: str):
             yield f"❌ Error executing {lang} block: {e}"
             break
             
-    yield "--- Pipeline Finished ---"
+    yield "\n--- Pipeline Finished ---\n"

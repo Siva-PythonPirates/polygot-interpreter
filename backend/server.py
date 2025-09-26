@@ -1,8 +1,12 @@
 from fastapi import FastAPI
 from fastapi.websockets import WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 import uvicorn
-from advanced_orchestrator import parse_code_to_tree, execute_tree_generator
+from advanced_orchestrator import parse_code_to_tree, execute_tree_generator, set_debug_mode, get_debug_mode
+
+class DebugToggle(BaseModel):
+    enabled: bool
 
 app = FastAPI()
 
@@ -14,6 +18,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.post("/debug/toggle")
+async def toggle_debug(debug_toggle: DebugToggle):
+    """Toggle debug mode on/off"""
+    set_debug_mode(debug_toggle.enabled)
+    return {"debug_mode": get_debug_mode(), "message": f"Debug mode {'enabled' if debug_toggle.enabled else 'disabled'}"}
+
+@app.get("/debug/status")
+async def get_debug_status():
+    """Get current debug mode status"""
+    return {"debug_mode": get_debug_mode()}
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
@@ -21,9 +36,11 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             polyglot_code = await websocket.receive_text()
             
-            tree = parse_code_to_tree(polyglot_code)
-            if tree:
-                for log_entry in execute_tree_generator(tree):
+            # Parse the polyglot code into blocks
+            blocks = parse_code_to_tree(polyglot_code)
+            if blocks:
+                # Execute the blocks sequentially
+                for log_entry in execute_tree_generator(blocks):
                     await websocket.send_text(log_entry)
             else:
                 await websocket.send_text("❌ Error: Could not parse any code blocks.")

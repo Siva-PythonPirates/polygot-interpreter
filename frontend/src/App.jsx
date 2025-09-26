@@ -9,205 +9,94 @@ import 'prismjs/components/prism-java';
 import 'prismjs/components/prism-python';
 import './index.css';
 
-const initialCode = `::java
-// Outermost Block (Java): Receives the final sorted array and prints it.
-String input = args.length > 0 ? args[0] : "{}";
+// Enhanced polyglot code supporting all data types!
+const initialCode = `::c
+int nums[] = {50, 25, 75, 100, 10};
+float pi = 3.14f;
+char grade = 'A';
+char name[] = "Polyglot";
+::/c
 
-System.out.println("--- Array Sort & Print Program ---");
-System.out.println("DEBUG - Java received input: " + input);
+::py
+# Work with all data types seamlessly
+nums.sort()
+pi_doubled = pi * 2
+message = f"Student {name} got grade {grade}"
+stats = {"count": len(nums), "max": max(nums)}
+::/py
 
-// Check if we have sorted_array (from Python) or unsorted_array (from C)
-if (input.contains("sorted_array")) {
-    // Parse sorted array from Python - be more precise with the search
-    String searchKey = "\\\"sorted_array\\\":";
-    int sortedArrayIndex = input.indexOf(searchKey);
-    if (sortedArrayIndex != -1) {
-        // Find the [ that comes AFTER "sorted_array":
-        int arrayStart = input.indexOf('[', sortedArrayIndex);
-        int arrayEnd = input.indexOf(']', arrayStart);
-        
-        if (arrayStart != -1 && arrayEnd != -1) {
-            String arrayData = input.substring(arrayStart + 1, arrayEnd);
-            System.out.println("Final sorted array: [" + arrayData + "]");
-        } else {
-            System.out.println("Could not parse sorted array from input");
-        }
-    } else {
-        System.out.println("Could not find sorted_array key in input");
-    }
-} else if (input.contains("unsorted_array")) {
-    // We got unsorted array directly - something went wrong with the pipeline
-    System.out.println("WARNING: Received unsorted array instead of sorted array!");
-    int startIndex = input.indexOf("unsorted_array");
-    int arrayStart = input.indexOf('[', startIndex);
-    int arrayEnd = input.indexOf(']', arrayStart);
-    
-    if (arrayStart != -1 && arrayEnd != -1) {
-        String arrayData = input.substring(arrayStart + 1, arrayEnd);
-        System.out.println("Unsorted array (not processed by Python): [" + arrayData + "]");
-    }
-} else {
-    System.out.println("No array data found in input: " + input);
+::java
+System.out.println("=== Multi-Type Data Demo ===");
+System.out.println("Sorted numbers: ");
+for (int i = 0; i < nums.length; i++) {
+    System.out.print(nums[i] + " ");
 }
+System.out.println();
+System.out.println("Pi doubled: " + pi_doubled);
+System.out.println("Message: " + message);
+::/java`;
 
-  ::py
-  # Middle Block (Python): Receives the unsorted array and sorts it.
-  import json, sys
-  
-  state = json.loads(sys.argv[1])
-  unsorted_list = state.get("unsorted_array", [])
-  
-  unsorted_list.sort()
-  
-  # Pass the new, sorted array to the parent (Java)
-  print(json.dumps({"sorted_array": unsorted_list}))
-
-    ::c
-    // Innermost Block (C): Generates the initial, unsorted data.
-    printf("{\\"unsorted_array\\": [99, 12, 5, 87, 34, 62]}");
-`;
-
-// --- SIMPLIFIED INDENTATION-AWARE HIGHLIGHTING ---
+// Simplified highlighting - just basic syntax highlighting
 const highlightCode = (code) => {
-  const lines = code.split('\n');
-  let result = [];
-  
-  const getIndentLevel = (line) => {
-    const match = line.match(/^(\s*)/);
-    return match ? match[1].length : 0;
-  };
-  
-  const getDepthColor = (indentLevel) => {
-    const depth = Math.floor(indentLevel / 2); // 2 spaces = 1 depth
-    const colors = ['blue', 'orange', 'green', 'purple', 'red'];
-    return colors[depth % colors.length];
-  };
-  
-  let currentLang = null;
-  let currentLangLineIndex = -1;
-  let blockContent = [];
-  
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
-    const indentLevel = getIndentLevel(line);
-    
-    // Check for language tag
-    const langMatch = trimmed.match(/^::(c|py|java)$/);
-    
-    if (langMatch) {
-      // Process previous block if exists
-      if (currentLang && blockContent.length > 0) {
-        const blockCode = blockContent.join('\n');
-        let highlighted = '';
-        
-        try {
-          switch (currentLang) {
-            case 'c':
-              highlighted = Prism.highlight(blockCode, Prism.languages.c, 'c');
-              break;
-            case 'py':
-              highlighted = Prism.highlight(blockCode, Prism.languages.python, 'python');
-              break;
-            case 'java':
-              highlighted = Prism.highlight(blockCode, Prism.languages.java, 'java');
-              break;
-            default:
-              highlighted = Prism.highlight(blockCode, Prism.languages.clike, 'clike');
-          }
-        } catch (e) {
-          highlighted = blockCode;
-        }
-        
-        // Get the CURRENT indentation of the previous lang tag line
-        const prevLangLineIndent = getIndentLevel(lines[currentLangLineIndex]);
-        const colorScheme = getDepthColor(prevLangLineIndent);
-        result.push(`<span class="lang-block depth-${Math.floor(prevLangLineIndent/2)}" data-lang="${currentLang}">${highlighted}</span>`);
-      }
-      
-      // Start new block
-      currentLang = langMatch[1];
-      currentLangLineIndex = i; // Remember which line has the ::lang tag
-      blockContent = [];
-      
-      // Add language tag with proper indentation and color based on CURRENT indentation
-      const spaces = ' '.repeat(indentLevel);
-      const colorScheme = getDepthColor(indentLevel);
-      result.push(`${spaces}<span class="lang-tag color-${colorScheme}">::${currentLang}</span>`);
-      
-    } else if (currentLang) {
-      // Add line to current block
-      blockContent.push(line);
-      
-    } else {
-      // Regular line outside blocks
-      if (trimmed) {
-        try {
-          const highlighted = Prism.highlight(line, Prism.languages.clike, 'clike');
-          result.push(highlighted);
-        } catch (e) {
-          result.push(line);
-        }
-      } else {
-        result.push(line);
-      }
-    }
-  }
-  
-  // Process last block
-  if (currentLang && blockContent.length > 0) {
-    const blockCode = blockContent.join('\n');
-    let highlighted = '';
-    
-    try {
-      switch (currentLang) {
-        case 'c':
-          highlighted = Prism.highlight(blockCode, Prism.languages.c, 'c');
-          break;
-        case 'py':
-          highlighted = Prism.highlight(blockCode, Prism.languages.python, 'python');
-          break;
-        case 'java':
-          highlighted = Prism.highlight(blockCode, Prism.languages.java, 'java');
-          break;
-        default:
-          highlighted = Prism.highlight(blockCode, Prism.languages.clike, 'clike');
-      }
-    } catch (e) {
-      highlighted = blockCode;
-    }
-    
-    // Get the CURRENT indentation of the last lang tag line
-    const lastLangLineIndent = getIndentLevel(lines[currentLangLineIndex]);
-    const colorScheme = getDepthColor(lastLangLineIndent);
-    result.push(`<span class="lang-block depth-${Math.floor(lastLangLineIndent/2)}" data-lang="${currentLang}">${highlighted}</span>`);
-  }
-  
-  return result.join('\n');
+  return Prism.highlight(code, Prism.languages.clike, 'clike');
 };
 
+// The Zustand store and App component are mostly the same
 const useStore = create((set, get) => ({
   code: initialCode,
   outputLog: [],
   isRunning: false,
   socket: null,
+  debugMode: true,
   setCode: (newCode) => set({ code: newCode }),
   clearLog: () => set({ outputLog: [] }),
+  toggleDebug: async () => {
+    const { debugMode } = get();
+    const newDebugMode = !debugMode;
+    
+    try {
+      const response = await fetch('http://localhost:8000/debug/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: newDebugMode })
+      });
+      
+      if (response.ok) {
+        set({ debugMode: newDebugMode });
+      }
+    } catch (error) {
+      console.error('Failed to toggle debug mode:', error);
+    }
+  },
+  fetchDebugStatus: async () => {
+    try {
+      const response = await fetch('http://localhost:8000/debug/status');
+      if (response.ok) {
+        const data = await response.json();
+        set({ debugMode: data.debug_mode });
+      }
+    } catch (error) {
+      console.error('Failed to fetch debug status:', error);
+    }
+  },
   connect: () => {
     if (get().socket) return;
     const newSocket = new WebSocket('ws://localhost:8000/ws');
     newSocket.onopen = () => set({ socket: newSocket });
     newSocket.onmessage = (event) => {
       const log = event.data;
-      if (log.includes('--- Pipeline Finished ---')) set({ isRunning: false });
+      if (log.includes('--- Pipeline Finished ---') || log.includes('Error in')) {
+        set({ isRunning: false });
+      }
       set((state) => ({ outputLog: [...state.outputLog, log] }));
     };
-    newSocket.onclose = () => set({ socket: null });
+    newSocket.onclose = () => set({ socket: null, isRunning: false });
+    newSocket.onerror = () => set({ isRunning: false });
   },
   runCode: () => {
     const { socket, code } = get();
     if (socket && socket.readyState === WebSocket.OPEN) {
-      set({ outputLog: ["🚀 Starting pipeline..."], isRunning: true });
+      set({ outputLog: ["🚀 Starting pipeline...\n"], isRunning: true });
       socket.send(code);
     }
   },
@@ -215,9 +104,15 @@ const useStore = create((set, get) => ({
 
 const App = () => {
   const fileInputRef = useRef(null);
-  const { code, setCode, outputLog, isRunning, socket, connect, runCode, clearLog } = useStore();
+  const { 
+    code, setCode, outputLog, isRunning, socket, debugMode, 
+    connect, runCode, clearLog, toggleDebug, fetchDebugStatus 
+  } = useStore();
 
-  useEffect(() => { if (!socket) connect(); }, [socket, connect]);
+  useEffect(() => { 
+    if (!socket) connect(); 
+    fetchDebugStatus();
+  }, [socket, connect, fetchDebugStatus]);
   
   const handleFileChange = (event) => {
     const file = event.target.files[0];
@@ -246,12 +141,20 @@ const App = () => {
             Upload .poly File
           </button>
           <input type="file" ref={fileInputRef} onChange={handleFileChange} style={{ display: 'none' }} accept=".poly"/>
-          <div className="instructions">
+          
+          <button className={`debug-button ${debugMode ? 'active' : ''}`} onClick={toggleDebug}>
+            <svg viewBox="0 0 24 24" width="20" height="20">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+            </svg>
+            {debugMode ? 'Hide Debug' : 'Show Debug'}
+          </button>
+                    <div className="instructions">
             <h2>How It Works</h2>
             <ol>
-              <li>Write code in nested blocks using indentation.</li>
-              <li>Execution starts from the innermost block.</li>
-              <li>A block's `stdout` (JSON) becomes state for its parent.</li>
+              <li>Write code in sequential blocks: <code>::lang</code> to <code>::/lang</code>.</li>
+              <li>Variables are automatically passed between languages.</li>
+              <li>No need for manual JSON parsing - just use variables directly!</li>
+              <li>Languages execute in order: C → Python → Java.</li>
             </ol>
           </div>
         </div>
@@ -269,7 +172,23 @@ const App = () => {
             <h2>Output Log</h2>
             <button onClick={clearLog} disabled={outputLog.length === 0}>Clear</button>
           </div>
-          <pre className="output-log">{outputLog.join('\n')}</pre>
+          <pre className="output-log">
+            {outputLog
+              .filter(line => {
+                if (debugMode) return true;
+                
+                // Hide all debug-related output when debug mode is off
+                const debugPatterns = [
+                  'DEBUG', '---', '🏗️', '📥', '✏️', '➕', '🔄', '📤', 
+                  '🏁', '===========', '🔄 POLYGLOT', '📊 Final variable',
+                  '✅ Pipeline completed', 'Starting fresh', 'Receiving variables',
+                  'Variables being modified', 'Created:', 'Modified:', 'Passing to'
+                ];
+                
+                return !debugPatterns.some(pattern => line.includes(pattern));
+              })
+              .join('\n')}
+          </pre>
         </div>
       </div>
     </div>
