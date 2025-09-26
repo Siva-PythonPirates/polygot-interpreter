@@ -290,12 +290,13 @@ const App = () => {
               .filter(line => {
                 if (debugMode) return true;
                 
-                // Hide all debug-related output when debug mode is off
+                // When debug mode is off, only hide specific debug messages, not all output
                 const debugPatterns = [
-                  'DEBUG', '---', '🏗️', '📥', '✏️', '➕', '🔄', '📤', 
-                  '🏁', '===========', '🔄 POLYGLOT', '📊 Final variable',
+                  '🚀 Starting pipeline', '🏗️', '📥', '✏️', '➕', '🔄', '📤', 
+                  '🏁', '===== POLYGLOT', '📊 Final variable', '📊 No variables persisted',
                   '✅ Pipeline completed', 'Starting fresh', 'Receiving variables',
-                  'Variables being modified', 'Created:', 'Modified:', 'Passing to'
+                  'Variables being modified', 'Created:', 'Modified:', 'Passing to',
+                  'Pipeline Finished'
                 ];
                 
                 return !debugPatterns.some(pattern => line.includes(pattern));
