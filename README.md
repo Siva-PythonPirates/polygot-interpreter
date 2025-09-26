@@ -1,303 +1,234 @@
-# 🌟 Polyglot Interpreter - Phase 2
+````markdown
+# 👽 The Polyglot Interpreter Project
 
-A sophisticated, web-based development environment that executes code in multiple languages (C, Python, Java) within a single, sequential pipeline. **Phase 2** introduces advanced syntax highlighting, indentation-aware visual coding, and a fully refined user experience that makes multi-language programming intuitive and powerful.
+> ⚡ A cutting-edge, experimental **polyglot development environment** that executes code written in multiple languages (C, Python, Java) seamlessly within a single pipeline.
 
-This project demonstrates cutting-edge concepts in containerization, state serialization, and modern web development, creating a unique tool for education, experimentation, and rapid prototyping.
+This project isn’t just a tool — it’s a story of evolution. Starting as a simple proof-of-concept, it grew into a recursive, stack-based interpreter, and finally transformed into a compiler-like intelligent orchestrator that **automates state management across languages**.
 
-![Polyglot Interpreter Phase 2](https://via.placeholder.com/800x400/282c34/61dafb?text=Polyglot+Interpreter+Phase+2)
-
-## 🎨 Phase 2 Features - Visual Excellence
-
-**Phase 2** takes the polyglot concept to the next level with a completely redesigned interface and enhanced developer experience:
-
-### 🌈 Advanced Syntax Highlighting
-- **Multi-language Prism.js integration** - Full syntax highlighting for C, Python, and Java
-- **Depth-based color coding** - Visual indentation levels with distinct color schemes
-- **Dynamic language detection** - Automatic syntax highlighting based on `::lang` tags
-- **Perfect text alignment** - Overlay system ensures highlighting matches exactly with cursor position
-
-### 📐 Indentation-Aware Visual System
-- **Smart depth detection** - Automatically calculates nesting levels based on whitespace
-- **Color-coded blocks** - Each indentation level gets a unique color (Blue → Orange → Green → Purple → Red)
-- **Real-time updates** - Colors change dynamically as you modify indentation
-- **Visual block structure** - Clear visual separation of nested code blocks
-
-### 💡 Enhanced Editor Experience
-- **Professional code editor** - Built with react-simple-code-editor for smooth typing
-- **Transparent overlay system** - Syntax highlighting without interfering with text input
-- **Monospace font rendering** - Consistent character spacing for perfect alignment
-- **Dark theme optimized** - Eye-friendly color scheme for extended coding sessions
+![Screenshot of the Final Polyglot Interpreter UI](https://i.imgur.com/32ecb0.png)
 
 ---
 
-## 🏗️ Technical Architecture
+## 🌌 Project Journey
 
-### Frontend Stack
-| Component | Technology | Purpose |
-|-----------|------------|---------|
-| **UI Framework** | **React 18** | Modern, component-based interface |
-| **Build Tool** | **Vite** | Lightning-fast development and builds |
-| **State Management** | **Zustand** | Lightweight, performant global state |
-| **Code Editor** | **react-simple-code-editor** | Professional code editing experience |
-| **Syntax Highlighting** | **Prism.js** | Multi-language syntax highlighting |
-| **WebSocket Client** | **Native WebSocket API** | Real-time communication with backend |
+### **Phase 1: Proof of Concept — Sequential Pipeline**
+The first milestone was to see if C, Python, and Java could be executed in a row. While trivial at first, the **JSON contract** emerged as the universal bridge for state sharing.
 
-### Backend Stack
-| Component | Technology | Purpose |
-|-----------|------------|---------|
-| **API Server** | **FastAPI** | High-performance async web framework |
-| **Container Runtime** | **Docker** | Isolated execution environments |
-| **Process Management** | **Python asyncio** | Concurrent container orchestration |
-| **WebSocket Server** | **FastAPI WebSocket** | Real-time bidirectional communication |
+**Contract:**
+1. Input state is passed as a JSON string (CLI arg).
+2. Block performs its logic.
+3. Output state is serialized as JSON to `stdout`.
 
-### System Architecture
+```poly
+::c
+int a[] = {50, 25, 75, 100, 10};
+printf("{\"a\": [%d, %d, %d, %d, %d]}", a[0], a[1], a[2], a[3], a[4]);
+::/c
 
-```mermaid
-graph TB
-    subgraph "Frontend (React + Vite)"
-        A[Code Editor with Syntax Highlighting] --> B[WebSocket Client]
-        A --> C[Zustand State Store]
-        C --> D[Real-time Output Display]
-    end
-    
-    subgraph "Backend (FastAPI)"
-        E[WebSocket Server] --> F[Code Parser]
-        F --> G[Container Orchestrator]
-        G --> H[Docker Runtime]
-    end
-    
-    subgraph "Execution Environment"
-        H --> I[C Container (GCC)]
-        H --> J[Python Container]
-        H --> K[Java Container (OpenJDK)]
-    end
-    
-    B <--> E
-    I --> G
-    J --> G
-    K --> G
-    G --> E
+::py
+import json, sys
+state = json.loads(sys.argv[1])
+my_list = state.get("a", [])
+my_list.sort()
+print(json.dumps({"a": my_list}))
+::/py
+
+::java
+String input = args.length > 0 ? args[0] : "{}";
+String arrayData = input.substring(input.indexOf('[') + 1, input.indexOf(']'));
+System.out.println("Final sorted array: [" + arrayData + "]");
+::/java
+````
+
+🚨 **Challenge:** Every block needed manual JSON handling, which was clunky and inelegant.
+
+---
+
+### **Phase 2: Nested Execution & Call Stack**
+
+We asked: *What if we could write code inside code?*
+
+```poly
+::c
+  ::py
+    ::java
+```
+
+This leap introduced a **call stack model**, executing code **inside-out**. Each nested block’s result became the input for its parent.
+
+```poly
+::c
+printf("--- FINAL REPORT ---\\n");
+printf("Analysis Complete.\\n");
+printf("Top Product Found: %s\\n", top_product_name);
+printf("Price: $%d\\n", top_product_price);
+
+  ::java
+  String input = args[0];
+  String name = input.split(",")[0].split(":")[1].replace("\"", "");
+  int price = Integer.parseInt(input.split(",")[1].split(":")[1].replace("}", "").trim());
+  System.out.println("{\"top_product_name\": \"" + name + "\", \"top_product_price\": " + price + "}");
+
+    ::py
+    import json
+    products = [
+      {"name": "Laptop", "price": 1200, "category": "Electronics"},
+      {"name": "Gaming Mouse", "price": 75, "category": "Electronics"}
+    ]
+    top_product = max(
+        (p for p in products if p['category'] == 'Electronics'),
+        key=lambda x: x['price']
+    )
+    print(json.dumps(top_product))
+```
+
+🚨 **Challenge:** Parsing nested syntax was fragile due to whitespace and regex limitations.
+
+---
+
+### **Phase 3: The Intelligent Engine**
+
+The final orchestrator freed developers from JSON micromanagement by performing **automatic static analysis**:
+
+✅ Detect variable declarations & modifications
+✅ Inject JSON capture/serialization automatically
+✅ Pass state across languages seamlessly
+✅ Provide **debug mode** with professional logs
+
+```poly
+::c
+int nums[] = {50, 25, 75, 100, 10};
+float pi = 3.14f;
+char grade = 'A';
+char name[] = "Polyglot";
+::/c
+
+::py
+nums.sort()
+pi_doubled = pi * 2
+message = f"Student {name} got grade {grade}"
+stats = {"count": len(nums), "max": max(nums)}
+::/py
+
+::java
+System.out.println("=== Multi-Type Data Demo ===");
+System.out.println("Sorted numbers: ");
+for (int i = 0; i < nums.length; i++) {
+    System.out.print(nums[i] + " ");
+}
+System.out.println();
+System.out.println("Pi doubled: " + pi_doubled);
+System.out.println("Message: " + message);
+::/java
+```
+
+**Sample Debug Log:**
+
+```
+==================================================
+🔄 POLYGLOT EXECUTION PIPELINE STARTED
+==================================================
+
+🏗️ === BLOCK 1/3: C ===
+🏁 Starting fresh (first block)
+✏️ Variables created: ['nums', 'name', 'pi', 'grade']
+📤 Passing to PY: ['nums', 'name', 'pi', 'grade']
+
+🏗️ === BLOCK 2/3: PY ===
+📥 Receiving vars: ['nums', 'name', 'pi', 'grade']
+✏️ Modified: nums, Created: [message, pi_doubled, stats]
+📤 Passing to JAVA: ['nums', 'message', 'pi_doubled']
+
+🏗️ === BLOCK 3/3: JAVA ===
+📥 Receiving vars: ['nums', 'message', 'pi_doubled']
+---
+=== Multi-Type Data Demo ===
+Sorted numbers: 10 25 50 75 100 
+Pi doubled: 6.28
+Message: Student Polyglot got grade A
+
+==================================================
+✅ Pipeline completed successfully
 ```
 
 ---
 
-## 🚀 Quick Start Guide
+## 🛠️ Tech Stack
+
+| Layer           | Technology                          |
+| --------------- | ----------------------------------- |
+| **Backend API** | FastAPI (Python)                    |
+| **Execution**   | Python `subprocess`                 |
+| **Sandboxing**  | Docker (C, Python, Java)            |
+| **Frontend**    | React (Vite)                        |
+| **State Mgmt**  | Zustand                             |
+| **Editor**      | React Simple Code Editor + Prism.js |
+
+---
+
+## 🚀 Getting Started
 
 ### Prerequisites
-- **Docker Desktop** - Must be installed and running
-- **Node.js 18+** - For the frontend development environment  
-- **Python 3.8+** - For the backend server
-- **Git** - For cloning the repository
 
-### Installation & Setup
+* Docker Desktop (running)
+* Node.js (v18+)
+* Python (v3.8+)
+* Git
 
-1. **Clone the Repository**
-   ```bash
-   git clone https://github.com/Siva-PythonPirates/polygot-interpreter.git
-   cd polygot-interpreter
-   ```
+### Setup
 
-2. **Start the Backend** (Terminal 1)
-   ```bash
-   cd backend
-   pip install -r requirements.txt
-   uvicorn server:app --reload
-   ```
-   Backend runs at: `http://localhost:8000`
+```bash
+# Clone repo
+git clone https://github.com/YOUR_USERNAME/polyglot-interpreter.git
+cd polyglot-interpreter
 
-3. **Start the Frontend** (Terminal 2)
-   ```bash
-   cd frontend
-   npm install
-   npm run dev
-   ```
-   Frontend runs at: `http://localhost:5173`
+# Backend
+cd backend
+pip install -r requirements.txt
+uvicorn server:app --reload
 
-4. **Open Your Browser**
-   Navigate to `http://localhost:5173` and start coding!
-
----
-
-## 📝 How to Write Polyglot Programs
-
-The polyglot interpreter uses a simple but powerful syntax that allows multiple languages to work together:
-
-### Basic Syntax Rules
-
-1. **Language Tags**: Use `::lang` to specify the language (e.g., `::c`, `::py`, `::java`)
-2. **Indentation**: Use spaces to create nested blocks (2 spaces = 1 level)
-3. **Execution Order**: Execution starts from the innermost (most indented) block
-4. **State Passing**: Each block's stdout becomes input for its parent block
-
-### Example Program: Array Sorting Pipeline
-
-```polyglot
-::java
-// Outermost Block: Final output and display
-String input = args.length > 0 ? args[0] : "{}";
-String searchKey = "\"sorted_array\":";
-int sortedArrayIndex = input.indexOf(searchKey);
-if (sortedArrayIndex != -1) {
-    int arrayStart = input.indexOf('[', sortedArrayIndex);
-    int arrayEnd = input.indexOf(']', arrayStart);
-    String arrayData = input.substring(arrayStart + 1, arrayEnd);
-    System.out.println("Final sorted array: [" + arrayData + "]");
-}
-
-  ::py
-  # Middle Block: Data processing and sorting
-  import json, sys
-  state = json.loads(sys.argv[1])
-  unsorted_list = state.get("unsorted_array", [])
-  unsorted_list.sort()
-  print(json.dumps({"sorted_array": unsorted_list}))
-
-    ::c
-    // Innermost Block: Data generation
-    printf("{\"unsorted_array\": [99, 12, 5, 87, 34, 62]}");
+# Frontend
+cd frontend
+npm install
+npm run dev
 ```
 
-### Execution Flow
-
-1. **C Block** generates initial data: `{"unsorted_array": [99, 12, 5, 87, 34, 62]}`
-2. **Python Block** receives C's output, sorts the array, outputs: `{"sorted_array": [5, 12, 34, 62, 87, 99]}`
-3. **Java Block** receives Python's output, formats and displays the final result
+🌐 Open: **[http://localhost:5173](http://localhost:5173)**
 
 ---
 
-## 🎨 Visual Highlighting System
+## 📊 Architecture
 
-### Depth-Based Color Coding
+```mermaid
+graph TD
+    subgraph Browser
+        A[React Web IDE] -- Polyglot Code (WebSocket) --> B
+    end
 
-The editor automatically applies color coding based on indentation levels:
+    subgraph Server
+        B(Python Orchestrator)
+        B -- 1. C Code --> C{Docker (GCC)}
+        C -- JSON State --> B
+        B -- 2. Python Code --> D{Docker (Python)}
+        D -- JSON State --> B
+        B -- 3. Java Code --> E{Docker (OpenJDK)}
+        E -- Final Output --> B
+    end
 
-| Depth Level | Color | Usage |
-|-------------|-------|--------|
-| **Level 0** | 🔵 **Blue** | Outermost blocks (no indentation) |
-| **Level 1** | 🟠 **Orange** | First level of nesting (2 spaces) |
-| **Level 2** | 🟢 **Green** | Second level of nesting (4 spaces) |
-| **Level 3** | 🟣 **Purple** | Third level of nesting (6 spaces) |
-| **Level 4** | 🔴 **Red** | Fourth level of nesting (8+ spaces) |
-
-### Language Tags
-
-Each `::lang` tag is highlighted with its corresponding depth color, making it easy to identify the structure and execution order of your polyglot programs.
-
----
-
-## 🛠️ Development Features
-
-### Real-Time Execution
-- **WebSocket Integration** - Instant feedback during code execution
-- **Live Output Streaming** - See results as they happen
-- **Error Reporting** - Detailed error messages with context
-- **Pipeline Visualization** - Track execution flow through multiple languages
-
-### File Management
-- **Upload Support** - Load `.poly` files directly into the editor
-- **Auto-Save** - Your code persists across browser sessions
-- **Export Functionality** - Save your polyglot programs locally
-
-### Developer Experience
-- **Responsive Design** - Works on desktop, tablet, and mobile
-- **Keyboard Shortcuts** - Standard editor shortcuts supported
-- **Connection Status** - Real-time WebSocket connection indicator
-- **Clear Output** - Easy output log management
-
----
-
-## 🎯 Use Cases & Applications
-
-### Educational
-- **Computer Science Courses** - Demonstrate inter-process communication
-- **Language Comparison** - Show strengths of different programming languages
-- **Algorithm Teaching** - Visualize data flow through processing stages
-- **Systems Programming** - Understand containerization and process isolation
-
-### Professional
-- **Rapid Prototyping** - Quick proof-of-concepts using multiple languages
-- **Microservice Simulation** - Test inter-service communication patterns
-- **Data Pipeline Development** - Build and test data transformation workflows
-- **Cross-Platform Development** - Leverage language-specific libraries together
-
-### Experimental
-- **Language Integration Research** - Explore polyglot programming patterns
-- **Performance Benchmarking** - Compare language performance in real scenarios
-- **Educational Tool Development** - Build interactive coding experiences
-- **Code Golf** - Create complex programs with minimal syntax
-
----
-
-## 🔮 Future Roadmap
-
-### Phase 3 Enhancements
-- [ ] **Additional Languages** - Go, Rust, JavaScript (Node.js), TypeScript
-- [ ] **Advanced Error Handling** - Syntax error highlighting in editor
-- [ ] **State Inspector** - Visual JSON state viewer with diff highlighting
-- [ ] **Performance Metrics** - Execution time and memory usage tracking
-- [ ] **Collaborative Editing** - Multi-user real-time coding sessions
-
-### Advanced Features
-- [ ] **Custom Containers** - User-defined Docker environments
-- [ ] **Package Management** - Install libraries within language blocks
-- [ ] **Version Control** - Git integration for polyglot programs
-- [ ] **API Integration** - HTTP requests within language blocks
-- [ ] **Database Connections** - Persistent data storage across executions
-
-### Platform Extensions
-- [ ] **Cloud Deployment** - Host and share polyglot programs online
-- [ ] **Mobile App** - Native mobile interface for coding on-the-go
-- [ ] **VS Code Extension** - Integrate polyglot capabilities into popular IDEs
-- [ ] **Educational Platform** - Structured courses and tutorials
+    B -- Real-time Logs --> A
+```
 
 ---
 
 ## 🤝 Contributing
 
-We welcome contributions! Here are some ways you can help:
-
-### Code Contributions
-- **Frontend Improvements** - Enhance the React interface
-- **Backend Optimization** - Improve container orchestration
-- **New Language Support** - Add runners for additional languages
-- **Testing** - Expand test coverage and reliability
-
-### Documentation
-- **Tutorial Creation** - Write guides for specific use cases
-- **API Documentation** - Document WebSocket protocols and APIs
-- **Example Programs** - Create interesting polyglot program examples
-
-### Community
-- **Bug Reports** - Help us identify and fix issues
-- **Feature Requests** - Suggest new capabilities
-- **User Feedback** - Share your experience and suggestions
+Pull requests and feature suggestions are welcome! Feel free to open an issue and start the conversation.
 
 ---
 
 ## 📜 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License — free to use, modify, and distribute.
 
----
-
-## 🙏 Acknowledgments
-
-- **React Team** - For the powerful UI framework
-- **FastAPI** - For the excellent async web framework  
-- **Docker** - For containerization technology
-- **Prism.js** - For syntax highlighting capabilities
-- **Vite** - For lightning-fast development experience
-
----
-
-## 📧 Contact & Support
-
-- **GitHub Issues** - For bug reports and feature requests
-- **Discussions** - For questions and community interaction
-- **Email** - [your-email@domain.com] for direct communication
-
----
-
-**Built with ❤️ by the Python Pirates crew**
-
-*Making multi-language programming accessible, visual, and fun!*
+```
+```
