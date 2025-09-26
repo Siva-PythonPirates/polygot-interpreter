@@ -24,13 +24,19 @@ def get_debug_mode() -> bool:
 def parse_nested_structure(code_str: str) -> dict:
     """Parse nested language blocks and return structured representation"""
     
+    debug_print(f"🔍 Parsing code for nested structure:\n{code_str}")
+    
     # Find the outermost language block
     outer_match = re.search(r'::(\w+)(.*?)::/\1', code_str, re.DOTALL)
     if not outer_match:
+        debug_print("❌ No outer match found")
         return None
     
     outer_lang = outer_match.group(1)
     outer_content = outer_match.group(2)
+    
+    debug_print(f"✅ Found outer block: {outer_lang}")
+    debug_print(f"📄 Outer content:\n{outer_content}")
     
     # Look for nested blocks within the outer content
     nested_blocks = []
@@ -40,19 +46,25 @@ def parse_nested_structure(code_str: str) -> dict:
         nested_lang = nested_match.group(1)
         nested_code = nested_match.group(2).strip()
         
+        debug_print(f"🔍 Found nested {nested_lang} block: {nested_code}")
+        
         nested_blocks.append({
             'lang': nested_lang,
             'code': nested_code,
             'start_pos': nested_match.start(),
-            'end_pos': nested_match.end()
+            'end_pos': nested_match.end(),
+            'full_match': nested_match.group(0)
         })
     
-    return {
+    result = {
         'outer_lang': outer_lang,
         'outer_content': outer_content,
         'nested_blocks': nested_blocks,
         'has_nested': len(nested_blocks) > 0
     }
+    
+    debug_print(f"📊 Parsing result: {len(nested_blocks)} nested blocks found")
+    return result
 
 def execute_nested_block(structure: dict, current_state: dict):
     """Execute nested language structure by expanding inner blocks"""
@@ -81,27 +93,59 @@ def execute_nested_block(structure: dict, current_state: dict):
             # Prepare nested block execution
             injected_declarations = inject_variable_declarations(nested_lang, available_vars)
             
-            # Check what variables this nested block modifies
-            modified_vars = extract_modified_variables(nested_code, nested_lang)
-            output_capture = inject_output_capture(nested_lang, {k: updated_state.get(k, 0) for k in modified_vars}, nested_code)
-            
-            full_nested_code = injected_declarations + nested_code + output_capture
-            
-            debug_print(f"🔍 Nested {nested_lang} code:\n{full_nested_code}")
-            
-            # Execute nested block
-            output = execute_in_docker(nested_lang, full_nested_code, "{}")
-            
-            # Try to parse output for variable updates
-            actual_output = ""
-            try:
-                new_vars = json.loads(output.strip())
-                updated_state.update(new_vars)
-                debug_print(f"📊 Nested block updated variables: {new_vars}")
-            except json.JSONDecodeError:
-                # It's actual program output
-                actual_output = output.strip()
-                debug_print(f"📄 Nested block produced output: {actual_output}")
+            # Special handling for cross-language variable access
+            if nested_lang == 'py' and 'print(' in nested_code:
+                # For Python print statements, we can simulate the behavior
+                # by understanding the context and generating appropriate C code
+                
+                debug_print(f"🎯 Detected Python print in C context: {nested_code}")
+                
+                # Extract what's being printed
+                import re
+                print_match = re.search(r'print\(([^)]+)\)', nested_code)
+                if print_match:
+                    print_arg = print_match.group(1).strip()
+                    debug_print(f"📤 Print argument: {print_arg}")
+                    
+                    # Convert Python print to C printf
+                    if print_arg.startswith('"') and print_arg.endswith('"'):
+                        # String literal
+                        c_replacement = f'printf({print_arg});'
+                    else:
+                        # Variable or expression - assume it's an integer for now
+                        c_replacement = f'printf("%d\\n", {print_arg});'
+                    
+                    debug_print(f"🔄 Converting to C printf: {c_replacement}")
+                    actual_output = c_replacement
+                else:
+                    actual_output = f'/* Could not parse: {nested_code} */'
+            else:
+                # Regular nested execution
+                modified_vars = extract_modified_variables(nested_code, nested_lang)
+                output_capture = inject_output_capture(nested_lang, {k: updated_state.get(k, 0) for k in modified_vars}, nested_code)
+                
+                full_nested_code = injected_declarations + nested_code + output_capture
+                
+                debug_print(f"🔍 Nested {nested_lang} code:\n{full_nested_code}")
+                
+                # Execute nested block
+                try:
+                    output = execute_in_docker(nested_lang, full_nested_code, "{}")
+                    
+                    # Try to parse output for variable updates
+                    actual_output = ""
+                    try:
+                        new_vars = json.loads(output.strip())
+                        updated_state.update(new_vars)
+                        debug_print(f"📊 Nested block updated variables: {new_vars}")
+                    except json.JSONDecodeError:
+                        # It's actual program output
+                        actual_output = output.strip()
+                        debug_print(f"📄 Nested block produced output: {actual_output}")
+                
+                except Exception as e:
+                    debug_print(f"❌ Error executing nested {nested_lang}: {e}")
+                    actual_output = f"/* Error: {e} */"
             
             # Replace the nested block with its output in outer content
             before = outer_content[:start_pos]
@@ -377,24 +421,27 @@ def execute_tree_generator(blocks: list, input_state: dict = None):
         
         debug_print(f"\n🏗️ === BLOCK {i+1}/{len(blocks)}: {lang.upper()} ===")
         
-        # Handle nested blocks
+        # Handle nested blocks FIRST - this replaces nested syntax with executed results
         if block.get('is_nested', False):
             debug_print(f"🔄 Processing nested block structure")
             if DEBUG_MODE:
                 yield f"🔄 Detected nested structure with {len(block['nested_structure']['nested_blocks'])} inner blocks"
             
-            # Execute nested structure
-            user_code, current_state = execute_nested_block(block['nested_structure'], current_state)
+            # Execute nested structure - this returns the processed code with nested blocks replaced
+            user_code, nested_updated_state = execute_nested_block(block['nested_structure'], current_state)
+            current_state.update(nested_updated_state)
+            
+            debug_print(f"📄 Code after nested processing:\n{user_code}")
             if DEBUG_MODE:
                 yield f"🔄 Nested execution completed, updated state: {list(current_state.keys())}"
         else:
             user_code = block['code']
         
-        # Extract variable names that the user code references
+        # Now extract variables from the PROCESSED code (with nested blocks replaced)
         referenced_vars = extract_variable_references(user_code, lang)
         debug_print(f"🔍 Variables referenced in {lang}: {referenced_vars}")
         
-        # Filter current_state to only include referenced variables
+        # Filter current_state to only include referenced variables  
         available_vars = {k: v for k, v in current_state.items() if k in referenced_vars}
         
         if available_vars:
