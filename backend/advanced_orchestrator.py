@@ -600,6 +600,7 @@ def execute_tree_generator(blocks: list, input_state: dict = None):
     
     debug_print(f"🏁 Pipeline completed! Final state: {current_state}")
     
+    # Only show summary when debug mode is enabled
     if DEBUG_MODE:
         yield "\n" + "=" * 50
         yield "🏁 PIPELINE EXECUTION SUMMARY"
