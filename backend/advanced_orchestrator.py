@@ -88,6 +88,26 @@ class SharedStateOrchestrator:
         debug_print("✅ Single language execution completed")
         debug_print("=" * 50)
     
+    def execute_single_language_with_output(self, code_str: str, lang: str):
+        """Execute single language code and return program output for WebSocket"""
+        debug_print("=" * 50)
+        debug_print(f"🔄 SINGLE {lang.upper()} EXECUTION")
+        debug_print("=" * 50)
+        
+        program_output = []
+        try:
+            output = execute_in_docker(lang, code_str, "{}")
+            if output.strip():
+                program_output = [line for line in output.strip().split('\n') if line.strip()]
+        except Exception as e:
+            program_output = [f"Error executing {lang}: {e}"]
+        
+        debug_print("\n" + "=" * 50)
+        debug_print("✅ Single language execution completed")
+        debug_print("=" * 50)
+        
+        return program_output
+    
     def execute_sequential_blocks(self, code_str: str):
         """Execute sequential blocks with shared state"""
         blocks = self.parse_sequential_blocks(code_str)
@@ -168,6 +188,55 @@ class SharedStateOrchestrator:
         except Exception as e:
             print(f"Error executing {lang}: {e}")
     
+    def execute_block_with_state_and_output(self, block: Dict):
+        """Execute a single block with state management and return program output for WebSocket"""
+        lang = block['lang']
+        code = block['code']
+        
+        # Get referenced variables
+        referenced_vars = self.extract_variable_references(code, lang)
+        available_vars = {k: v for k, v in self.global_state.items() 
+                         if k in referenced_vars and not k.startswith('_')}
+        
+        if available_vars:
+            debug_print(f"📥 Available variables: {list(available_vars.keys())}")
+        
+        # Inject variable declarations
+        var_injection = self.inject_variable_declarations(lang, available_vars)
+        
+        # Detect modified variables
+        modified_vars = self.extract_modified_variables(code, lang)
+        
+        # Filter out loop variables
+        if lang == 'c':
+            loop_vars = set(re.findall(r'for\s*\(\s*int\s+([a-zA-Z_]\w*)', code))
+            modified_vars -= loop_vars
+        elif lang in ['py', 'java']:
+            # Filter out obvious loop variables
+            modified_vars = {v for v in modified_vars if v not in ['i', 'j', 'k']}
+        
+        if modified_vars:
+            debug_print(f"✏️ Variables being modified: {list(modified_vars)}")
+        
+        # Add output capture
+        output_capture = self.inject_output_capture(lang, modified_vars, code)
+        
+        # Combine code
+        full_code = var_injection + code + output_capture
+        
+        debug_print(f"Full {lang} code:\n{full_code}")
+        
+        program_output = []
+        try:
+            output = execute_in_docker(lang, full_code, "{}")
+            # Extract only the program output (not JSON state)
+            program_lines, _ = self.process_execution_output_and_return(output)
+            program_output = program_lines
+        except Exception as e:
+            program_output = [f"Error executing {lang}: {e}"]
+        
+        return program_output
+    
     def process_execution_output(self, output: str):
         """Process execution output and update state"""
         if not output.strip():
@@ -204,6 +273,41 @@ class SharedStateOrchestrator:
             for line in program_output:
                 if line.strip():
                     print(line)
+    
+    def process_execution_output_and_return(self, output: str):
+        """Process execution output, update state, and return program output for WebSocket"""
+        if not output.strip():
+            return [], {}
+        
+        lines = output.strip().split('\n')
+        program_output = []
+        
+        for line in lines:
+            line_clean = line.strip()
+            if line_clean.startswith('{') and line_clean.endswith('}') and '"' in line_clean:
+                try:
+                    new_vars = json.loads(line_clean)
+                    old_state = self.global_state.copy()
+                    self.global_state.update(new_vars)
+                    
+                    if DEBUG_MODE:
+                        added = {k: v for k, v in new_vars.items() if k not in old_state}
+                        modified = {k: v for k, v in new_vars.items() 
+                                  if k in old_state and old_state[k] != v}
+                        
+                        if added:
+                            debug_print(f"➕ Created: {list(added.keys())} = {list(added.values())}")
+                        if modified:
+                            debug_print(f"🔄 Modified: {list(modified.keys())} = {list(modified.values())}")
+                    
+                except json.JSONDecodeError:
+                    program_output.append(line)
+            else:
+                program_output.append(line)
+        
+        # Return program output lines (don't print them)
+        clean_output = [line for line in program_output if line.strip()]
+        return clean_output, self.global_state
     
     def extract_variable_references(self, code: str, lang: str) -> set:
         """Extract variable names referenced in code"""
@@ -550,7 +654,10 @@ def execute_tree_generator(blocks: list, input_state: dict = None):
     
     if len(blocks) == 1 and not re.search(r'::(\w+)', blocks[0]['code']):
         # Single language
-        orchestrator.execute_single_language(blocks[0]['code'], blocks[0]['lang'])
+        program_output = orchestrator.execute_single_language_with_output(blocks[0]['code'], blocks[0]['lang'])
+        if program_output:
+            for line in program_output:
+                yield line
     else:
         # Sequential blocks
         if DEBUG_MODE:
@@ -562,7 +669,11 @@ def execute_tree_generator(blocks: list, input_state: dict = None):
             if DEBUG_MODE:
                 yield f"\n🏗️ === BLOCK {i+1}/{len(blocks)}: {block['lang'].upper()} ==="
             
-            orchestrator.execute_block_with_state(block)
+            # Execute block and get program output
+            program_output = orchestrator.execute_block_with_state_and_output(block)
+            if program_output:
+                for line in program_output:
+                    yield line
         
         if DEBUG_MODE:
             yield "\n" + "=" * 50
