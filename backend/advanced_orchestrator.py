@@ -641,6 +641,54 @@ print(json.dumps(_result))"""
         # Fallback: execute as regular block
         self.execute_block_with_state(block)
     
+    def execute_nested_block_with_loop_and_return_output(self, block: Dict):
+        """Execute nested block and return output for WebSocket streaming"""
+        nested_info = block['nested_info']
+        outer_lang = nested_info['outer_lang']
+        outer_content = nested_info['outer_content']
+        nested_blocks = nested_info['nested_blocks']
+        
+        output_lines = []
+        
+        debug_print(f"🔄 Executing nested {outer_lang} with {len(nested_blocks)} nested blocks")
+        
+        # Extract loop information from C code
+        if outer_lang == 'c':
+            # Find the for loop pattern
+            loop_match = re.search(r'for\s*\(\s*int\s+(\w+)\s*=\s*(\d+)\s*;\s*\1\s*<\s*(\d+)\s*;\s*\1\+\+\s*\)', outer_content)
+            if loop_match:
+                loop_var = loop_match.group(1)
+                start_val = int(loop_match.group(2))
+                end_val = int(loop_match.group(3))
+                
+                debug_print(f"🔄 Found C loop: {loop_var} from {start_val} to {end_val-1}")
+                
+                # Get the array variable
+                array_match = re.search(r'int\s+(\w+)\s*\[\s*\]\s*=\s*\{([^}]+)\}', outer_content)
+                if array_match:
+                    array_name = array_match.group(1)
+                    array_values = [int(x.strip()) for x in array_match.group(2).split(',')]
+                    
+                    debug_print(f"🔄 Found array {array_name}: {array_values}")
+                    
+                    # Store array in global state
+                    self.global_state[array_name] = array_values
+                    
+                    # Execute the loop and collect output
+                    for i in range(start_val, end_val):
+                        debug_print(f"🔄 Loop iteration {i}")
+                        
+                        # Set loop variable and current array value
+                        self.global_state[loop_var] = i
+                        self.global_state['current_' + array_name] = array_values[i]
+                        
+                        # Execute each nested block in this iteration
+                        for nested_block in nested_blocks:
+                            iteration_output = self.execute_nested_iteration_and_return_output(nested_block, i, array_values[i])
+                            output_lines.extend(iteration_output)
+        
+        return output_lines
+    
     def execute_nested_iteration(self, nested_block: Dict, loop_index: int, array_value: int):
         """Execute a single nested block iteration"""
         lang = nested_block['lang']
@@ -715,6 +763,85 @@ print(json.dumps(_result))"""
                     print(output.strip())
             except Exception as e:
                 print(f"Error executing nested {lang}: {e}")
+    
+    def execute_nested_iteration_and_return_output(self, nested_block: Dict, loop_index: int, array_value: int):
+        """Execute a single nested block iteration and return output for WebSocket"""
+        lang = nested_block['lang']
+        code = nested_block['code'].strip()
+        
+        debug_print(f"🔄 Executing {lang} nested block for iteration {loop_index}")
+        
+        output_lines = []
+        
+        if lang == 'py':
+            # Replace placeholders in Python code
+            processed_code = re.sub(r'a\[i\]', str(array_value), code)
+            
+            # Get available variables
+            referenced_vars = self.extract_variable_references(processed_code, lang)
+            available_vars = {k: v for k, v in self.global_state.items() 
+                             if k in referenced_vars and not k.startswith('_')}
+            
+            # Add current values
+            available_vars['i'] = loop_index
+            
+            # Inject variables and execute
+            var_injection = self.inject_variable_declarations(lang, available_vars)
+            
+            # Clean up the code - remove extra indentation
+            code_lines = processed_code.split('\n')
+            clean_lines = []
+            for line in code_lines:
+                if line.strip():  # Only include non-empty lines
+                    clean_lines.append(line.strip())  # Remove all leading whitespace
+            
+            clean_processed_code = '\n'.join(clean_lines)
+            
+            modified_vars = self.extract_modified_variables(clean_processed_code, lang)
+            output_capture = self.inject_output_capture(lang, modified_vars, clean_processed_code)
+            
+            full_code = var_injection + clean_processed_code + output_capture
+            
+            debug_print(f"Python nested code:\n{full_code}")
+            
+            try:
+                output = execute_in_docker(lang, full_code, "{}")
+                program_lines, _ = self.process_execution_output_and_return(output)
+                output_lines.extend(program_lines)
+            except Exception as e:
+                output_lines.append(f"Error executing nested {lang}: {e}")
+        
+        elif lang == 'java':
+            # Replace placeholders in Java code
+            processed_code = re.sub(r'a\[i\]', str(array_value), code)
+            
+            # Clean up indentation for Java code
+            code_lines = processed_code.split('\n')
+            clean_lines = []
+            for line in code_lines:
+                if line.strip():  # Only include non-empty lines
+                    clean_lines.append('        ' + line.strip())  # Proper Java indentation inside main method
+            
+            clean_processed_code = '\n'.join(clean_lines)
+            
+            # Wrap in Main class
+            java_code = f"""public class Main {{
+    public static void main(String[] args) {{
+        int i = {loop_index};
+{clean_processed_code}
+    }}
+}}"""
+            
+            debug_print(f"Java nested code:\n{java_code}")
+            
+            try:
+                output = execute_in_docker(lang, java_code, "{}")
+                if output.strip():
+                    output_lines.extend([line for line in output.strip().split('\n') if line.strip()])
+            except Exception as e:
+                output_lines.append(f"Error executing nested {lang}: {e}")
+        
+        return output_lines
 
     def convert_nested_to_outer(self, nested_code: str, nested_lang: str, outer_lang: str) -> str:
         """Convert nested language code to outer language syntax"""
@@ -804,23 +931,73 @@ print(json.dumps(_result))"""
 
 # Compatibility functions for your existing API
 def parse_code_to_tree(code_str: str) -> list:
-    """Parse code structure - returns compatible format"""
+    """Parse code structure - returns compatible format with enhanced nested detection"""
     orchestrator = SharedStateOrchestrator()
     structure_type = orchestrator.detect_code_structure(code_str)
     
     if structure_type.startswith('single_'):
         lang = structure_type.split('_')[1]
         return [{'lang': lang, 'code': code_str, 'is_nested': False}]
+    elif structure_type == 'nested':
+        # Return special marker for nested execution
+        return [{'lang': 'nested', 'code': code_str, 'is_nested': True}]
     else:
         return orchestrator.parse_sequential_blocks(code_str)
 
 def execute_tree_generator(blocks: list, input_state: dict = None):
-    """Execute blocks using shared state orchestrator"""
+    """Execute blocks using shared state orchestrator with full nested support"""
     orchestrator = SharedStateOrchestrator()
     if input_state:
         orchestrator.global_state.update(input_state)
     
-    if len(blocks) == 1 and not re.search(r'::(\w+)', blocks[0]['code']):
+    # Check if this is nested execution
+    if len(blocks) == 1 and blocks[0].get('is_nested'):
+        # This is nested code - use the full orchestrator
+        if DEBUG_MODE:
+            yield "=" * 50
+            yield "🔄 NESTED EXECUTION PIPELINE STARTED"
+            yield "=" * 50
+        
+        # Execute using the full orchestrator with nested support
+        code_str = blocks[0]['code']
+        
+        # Parse all blocks (nested and sequential)
+        all_blocks = orchestrator.parse_all_blocks(code_str)
+        
+        if DEBUG_MODE:
+            yield f"🏗️ Found {len(all_blocks)} blocks to process"
+        
+        # Execute blocks in order
+        for i, block in enumerate(all_blocks):
+            if DEBUG_MODE:
+                nested_marker = "(NESTED)" if block.get('nested') else ""
+                yield f"\n🏗️ === BLOCK {i+1}/{len(all_blocks)}: {block['lang'].upper()} {nested_marker} ==="
+            
+            if block.get('nested'):
+                # Handle nested blocks specially - execute the loop
+                nested_output = orchestrator.execute_nested_block_with_loop_and_return_output(block)
+                for line in nested_output:
+                    yield line
+            else:
+                # Regular sequential block
+                program_output = orchestrator.execute_block_with_state_and_output(block)
+                if program_output:
+                    for line in program_output:
+                        yield line
+        
+        if DEBUG_MODE:
+            yield "\n" + "=" * 50
+            yield "🏁 NESTED EXECUTION SUMMARY"
+            yield "=" * 50
+            clean_state = {k: v for k, v in orchestrator.global_state.items() if not k.startswith('_')}
+            if clean_state:
+                yield f"📊 Final state: {clean_state}"
+            else:
+                yield "📊 No variables persisted"
+            yield "✅ Nested execution completed"
+            yield "=" * 50
+        
+    elif len(blocks) == 1 and not re.search(r'::(\w+)', blocks[0]['code']):
         # Single language
         program_output = orchestrator.execute_single_language_with_output(blocks[0]['code'], blocks[0]['lang'])
         if program_output:
