@@ -93,11 +93,9 @@ def execute_nested_block(structure: dict, current_state: dict):
             # Prepare nested block execution
             injected_declarations = inject_variable_declarations(nested_lang, available_vars)
             
-            # Special handling for cross-language variable access
+            # Special handling for cross-language conversions to C
             if nested_lang == 'py' and 'print(' in nested_code:
-                # For Python print statements, we can simulate the behavior
-                # by understanding the context and generating appropriate C code
-                
+                # Convert Python print to C printf
                 debug_print(f"🎯 Detected Python print in C context: {nested_code}")
                 
                 # Extract what's being printed
@@ -107,18 +105,77 @@ def execute_nested_block(structure: dict, current_state: dict):
                     print_arg = print_match.group(1).strip()
                     debug_print(f"📤 Print argument: {print_arg}")
                     
-                    # Convert Python print to C printf
-                    if print_arg.startswith('"') and print_arg.endswith('"'):
-                        # String literal
-                        c_replacement = f'printf({print_arg});'
+                    # Handle multiple arguments (comma-separated)
+                    if ',' in print_arg:
+                        # Multiple arguments - convert to multiple printf statements
+                        args = [arg.strip() for arg in print_arg.split(',')]
+                        printf_parts = []
+                        for arg in args:
+                            if arg.startswith('"') and arg.endswith('"'):
+                                printf_parts.append(f'printf({arg})')
+                            else:
+                                printf_parts.append(f'printf("%d", {arg})')
+                        c_replacement = '; '.join(printf_parts) + ';'
                     else:
-                        # Variable or expression - assume it's an integer for now
-                        c_replacement = f'printf("%d\\n", {print_arg});'
+                        # Single argument
+                        if print_arg.startswith('"') and print_arg.endswith('"'):
+                            c_replacement = f'printf({print_arg});'
+                        else:
+                            c_replacement = f'printf("%d", {print_arg});'
                     
                     debug_print(f"🔄 Converting to C printf: {c_replacement}")
                     actual_output = c_replacement
                 else:
-                    actual_output = f'/* Could not parse: {nested_code} */'
+                    actual_output = f'/* Could not parse Python: {nested_code} */'
+            
+            elif nested_lang == 'java' and ('System.out.println' in nested_code or 'System.out.print' in nested_code):
+                # Convert Java System.out to C printf
+                debug_print(f"🎯 Detected Java System.out in C context: {nested_code}")
+                
+                # Extract what's being printed
+                import re
+                # Match both println and print
+                java_match = re.search(r'System\.out\.print(?:ln)?\s*\(([^)]+)\)', nested_code)
+                if java_match:
+                    print_arg = java_match.group(1).strip()
+                    debug_print(f"📤 Java print argument: {print_arg}")
+                    
+                    # Handle Java string concatenation with +
+                    if '+' in print_arg:
+                        # Java string concatenation - convert to C printf with format specifiers
+                        # For now, handle simple cases like "string " + variable
+                        parts = [part.strip() for part in print_arg.split('+')]
+                        printf_format = ""
+                        printf_args = []
+                        
+                        for part in parts:
+                            if part.startswith('"') and part.endswith('"'):
+                                # String literal - add to format
+                                printf_format += part[1:-1]  # Remove quotes
+                            else:
+                                # Variable - add format specifier and argument
+                                printf_format += "%d"
+                                printf_args.append(part)
+                        
+                        if printf_args:
+                            c_replacement = f'printf("{printf_format}", {", ".join(printf_args)});'
+                        else:
+                            c_replacement = f'printf("{printf_format}");'
+                    else:
+                        # Simple argument
+                        if print_arg.startswith('"') and print_arg.endswith('"'):
+                            c_replacement = f'printf({print_arg});'
+                        else:
+                            c_replacement = f'printf("%d", {print_arg});'
+                    
+                    # Add newline for println
+                    if 'println' in nested_code:
+                        c_replacement = c_replacement[:-1] + 'printf("\\n");'
+                    
+                    debug_print(f"🔄 Converting to C printf: {c_replacement}")
+                    actual_output = c_replacement
+                else:
+                    actual_output = f'/* Could not parse Java: {nested_code} */'
             else:
                 # Regular nested execution
                 modified_vars = extract_modified_variables(nested_code, nested_lang)
@@ -154,10 +211,10 @@ def execute_nested_block(structure: dict, current_state: dict):
             # Use actual output if any, otherwise empty
             outer_content = before + actual_output + after
             
-            # Update positions for remaining blocks
+            # Update positions for remaining blocks (only those that come AFTER this one)
             pos_diff = len(actual_output) - (end_pos - start_pos)
             for other_block in structure['nested_blocks']:
-                if other_block['start_pos'] < start_pos:
+                if other_block['start_pos'] > end_pos:  # Only update blocks that come after
                     other_block['start_pos'] += pos_diff
                     other_block['end_pos'] += pos_diff
                     
