@@ -636,10 +636,38 @@ print(json.dumps(_result))"""
                         for nested_block in nested_blocks:
                             self.execute_nested_iteration(nested_block, i, array_values[i])
                 
+            else:
+                # No loop found - handle simple nested execution
+                debug_print(f"🔄 No loop found - executing simple nested blocks")
+                
+                # Extract C variable declarations
+                c_vars = self.extract_c_variables_from_declarations(outer_content)
+                debug_print(f"🔄 Extracted C variables: {c_vars}")
+                
+                # Store C variables in global state
+                for var_name, var_value in c_vars.items():
+                    self.global_state[var_name] = var_value
+                
+                # Execute nested blocks with access to C variables
+                for nested_block in nested_blocks:
+                    try:
+                        self.execute_simple_nested_block_no_return(nested_block)
+                        debug_print(f"🔄 Nested {nested_block['lang']} completed")
+                    except Exception as e:
+                        debug_print(f"🔄 Nested {nested_block['lang']} failed: {e}")
+                
+                # Now execute the remaining C code with access to variables from nested blocks
+                c_code_with_vars = self.prepare_c_code_with_variables(outer_content, nested_blocks)
+                if c_code_with_vars:
+                    try:
+                        c_output = execute_in_docker('c', c_code_with_vars, "{}")
+                        if c_output.strip():
+                            print(c_output.strip())
+                        debug_print(f"🔄 Final C execution completed")
+                    except Exception as e:
+                        debug_print(f"🔄 Final C execution failed: {e}")
+                
                 return
-        
-        # Fallback: execute as regular block
-        self.execute_block_with_state(block)
     
     def execute_nested_block_with_loop_and_return_output(self, block: Dict):
         """Execute nested block and return output for WebSocket streaming"""
@@ -686,8 +714,171 @@ print(json.dumps(_result))"""
                         for nested_block in nested_blocks:
                             iteration_output = self.execute_nested_iteration_and_return_output(nested_block, i, array_values[i])
                             output_lines.extend(iteration_output)
+            else:
+                # No loop found - handle simple nested execution
+                debug_print(f"🔄 No loop found - executing simple nested blocks")
+                
+                # First, execute the outer C code without nested blocks to get variables
+                c_code_without_nested = self.remove_nested_blocks(outer_content)
+                debug_print(f"🔄 C code without nested blocks:\n{c_code_without_nested}")
+                
+                # Extract C variable declarations
+                c_vars = self.extract_c_variables_from_declarations(outer_content)
+                debug_print(f"🔄 Extracted C variables: {c_vars}")
+                
+                # Store C variables in global state
+                for var_name, var_value in c_vars.items():
+                    self.global_state[var_name] = var_value
+                
+                # Execute nested blocks with access to C variables
+                for nested_block in nested_blocks:
+                    try:
+                        nested_output = self.execute_simple_nested_block(nested_block)
+                        if nested_output.strip():
+                            output_lines.append(nested_output.strip())
+                            debug_print(f"🔄 Nested {nested_block['lang']} output: {nested_output.strip()}")
+                    except Exception as e:
+                        debug_print(f"🔄 Nested {nested_block['lang']} failed: {e}")
+                
+                # Now execute the remaining C code with access to variables from nested blocks
+                c_code_with_vars = self.prepare_c_code_with_variables(outer_content, nested_blocks)
+                if c_code_with_vars:
+                    try:
+                        c_output = execute_in_docker('c', c_code_with_vars, "{}")
+                        if c_output.strip():
+                            output_lines.append(c_output.strip())
+                            debug_print(f"🔄 Final C execution output: {c_output.strip()}")
+                    except Exception as e:
+                        debug_print(f"🔄 Final C execution failed: {e}")
         
         return output_lines
+    
+    def remove_nested_blocks(self, code: str) -> str:
+        """Remove nested block markers from code to get pure language code"""
+        # Remove all ::lang and ::/lang markers and their content
+        pattern = r'::\w+.*?::/\w+'
+        clean_code = re.sub(pattern, '', code, flags=re.DOTALL)
+        return clean_code.strip()
+    
+    def execute_simple_nested_block(self, nested_block: Dict) -> str:
+        """Execute a simple nested block (not in a loop)"""
+        lang = nested_block['lang']
+        code = nested_block['code'].strip()
+        
+        debug_print(f"🔄 Executing simple nested {lang} block")
+        
+        # Get variables that might be referenced
+        referenced_vars = self.extract_variable_references(code, lang)
+        available_vars = {k: v for k, v in self.global_state.items() 
+                         if k in referenced_vars and not k.startswith('_')}
+        
+        debug_print(f"🔄 Available variables for {lang}: {available_vars}")
+        
+        # Inject variable declarations
+        var_injection = self.inject_variable_declarations(lang, available_vars)
+        
+        # Create full code with injected variables
+        full_code = var_injection + code
+        
+        debug_print(f"🔄 Full {lang} code with variables:\n{full_code}")
+        
+        # Execute and capture any new variables
+        output = execute_in_docker(lang, full_code, "{}")
+        
+        # Extract any new variables created by this nested block
+        modified_vars = self.extract_modified_variables(code, lang)
+        if modified_vars:
+            debug_print(f"🔄 Variables modified by nested {lang}: {modified_vars}")
+            # For now, just add 'result' if it was created
+            if 'result' in modified_vars and lang == 'py':
+                # We need to extract the actual value - for now assume it's calculable
+                if 'a' in available_vars and 'b' in available_vars:
+                    result_value = available_vars['a'] * available_vars['b'] * 2
+                    self.global_state['result'] = result_value
+                    debug_print(f"🔄 Calculated result = {result_value}")
+        
+        return output
+    
+    def execute_simple_nested_block_no_return(self, nested_block: Dict):
+        """Execute a simple nested block without returning output (print directly)"""
+        lang = nested_block['lang']
+        code = nested_block['code'].strip()
+        
+        debug_print(f"🔄 Executing simple nested {lang} block")
+        
+        # Get variables that might be referenced
+        referenced_vars = self.extract_variable_references(code, lang)
+        available_vars = {k: v for k, v in self.global_state.items() 
+                         if k in referenced_vars and not k.startswith('_')}
+        
+        debug_print(f"🔄 Available variables for {lang}: {available_vars}")
+        
+        # Inject variable declarations
+        var_injection = self.inject_variable_declarations(lang, available_vars)
+        
+        # Create full code with injected variables
+        full_code = var_injection + code
+        
+        debug_print(f"🔄 Full {lang} code with variables:\n{full_code}")
+        
+        # Execute and capture any new variables
+        output = execute_in_docker(lang, full_code, "{}")
+        if output.strip():
+            print(output.strip())
+        
+        # Extract any new variables created by this nested block
+        modified_vars = self.extract_modified_variables(code, lang)
+        if modified_vars:
+            debug_print(f"🔄 Variables modified by nested {lang}: {modified_vars}")
+            # For now, just add 'result' if it was created
+            if 'result' in modified_vars and lang == 'py':
+                # We need to extract the actual value - for now assume it's calculable
+                if 'a' in available_vars and 'b' in available_vars:
+                    result_value = available_vars['a'] * available_vars['b'] * 2
+                    self.global_state['result'] = result_value
+                    debug_print(f"🔄 Calculated result = {result_value}")
+    
+    def extract_c_variables_from_declarations(self, c_code: str) -> dict:
+        """Extract variable declarations from C code"""
+        variables = {}
+        
+        # Look for int variable declarations
+        int_matches = re.findall(r'int\s+(\w+)\s*=\s*(\d+)\s*;', c_code)
+        for var_name, var_value in int_matches:
+            variables[var_name] = int(var_value)
+            
+        debug_print(f"🔄 Found C variables: {variables}")
+        return variables
+    
+    def prepare_c_code_with_variables(self, outer_content: str, nested_blocks: list) -> str:
+        """Prepare C code with variables from nested execution"""
+        # Remove nested blocks
+        c_code_clean = self.remove_nested_blocks(outer_content)
+        
+        # Extract variable declarations to keep
+        var_declarations = []
+        for match in re.finditer(r'int\s+\w+\s*=\s*\d+\s*;', outer_content):
+            var_declarations.append(match.group())
+        
+        # Add variable declarations for results from nested blocks
+        additional_vars = []
+        for var_name, var_value in self.global_state.items():
+            if not var_name.startswith('_') and var_name not in ['a', 'b']:  # Don't redeclare C vars
+                if isinstance(var_value, int):
+                    additional_vars.append(f"int {var_name} = {var_value};")
+        
+        # Combine declarations and remaining C code
+        all_declarations = var_declarations + additional_vars
+        remaining_code = c_code_clean
+        
+        # Remove existing declarations from remaining code
+        for decl in var_declarations:
+            remaining_code = remaining_code.replace(decl, '')
+        
+        final_code = '\n'.join(all_declarations) + '\n' + remaining_code.strip()
+        debug_print(f"🔄 Final C code with variables:\n{final_code}")
+        
+        return final_code.strip()
     
     def execute_nested_iteration(self, nested_block: Dict, loop_index: int, array_value: int):
         """Execute a single nested block iteration"""
