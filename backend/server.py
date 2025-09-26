@@ -26,6 +26,7 @@ app.add_middleware(
 async def toggle_debug(debug_toggle: DebugToggle):
     """Toggle debug mode on/off"""
     set_debug_mode(debug_toggle.enabled)
+    print(f"Debug mode toggled to: {debug_toggle.enabled}")
     return {"debug_mode": get_debug_mode(), "message": f"Debug mode {'enabled' if debug_toggle.enabled else 'disabled'}"}
 
 @app.get("/debug/status")
@@ -68,40 +69,21 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             polyglot_code = await websocket.receive_text()
-            print(f"Received code for execution:\n{polyglot_code}")
+            print(f"Received code for execution (DEBUG_MODE={get_debug_mode()}):\n{polyglot_code}")
             
             await websocket.send_text("🚀 Starting pipeline...")
             
             try:
-                # Use SharedStateOrchestrator directly
-                from advanced_orchestrator import SharedStateOrchestrator
-                orchestrator = SharedStateOrchestrator()
-                
-                # Capture all output by temporarily redirecting print
-                import sys
-                from io import StringIO
-                
-                # Create string buffer to capture output
-                output_buffer = StringIO()
-                original_stdout = sys.stdout
-                
-                try:
-                    # Redirect stdout to capture print statements
-                    sys.stdout = output_buffer
-                    
-                    # Execute the code
-                    orchestrator.parse_and_execute(polyglot_code)
-                    
-                finally:
-                    # Restore original stdout
-                    sys.stdout = original_stdout
-                
-                # Send captured output to WebSocket
-                output = output_buffer.getvalue()
-                if output.strip():
-                    for line in output.strip().split('\n'):
-                        if line.strip():
-                            await websocket.send_text(line)
+                # Use the existing generator-based execution for proper WebSocket streaming
+                blocks = parse_code_to_tree(polyglot_code)
+                if blocks:
+                    print(f"Generated {len(blocks)} blocks, executing with debug mode: {get_debug_mode()}")
+                    # Execute using the generator that respects debug mode
+                    for log_entry in execute_tree_generator(blocks):
+                        print(f"Yielding: {log_entry}")
+                        await websocket.send_text(log_entry)
+                else:
+                    await websocket.send_text("❌ Error: Could not parse any code blocks.")
                 
             except Exception as e:
                 await websocket.send_text(f"❌ Error: {e}")
