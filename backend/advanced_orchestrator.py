@@ -244,7 +244,7 @@ class SharedStateOrchestrator:
                 if not re.search(r'import\s+.*' + re.escape(var_name), code):
                     modified.add(var_name)
             # Method calls that modify objects
-            for match in re.finditer(r'([a-zA-Z_]\w*)\.(append|extend|remove|pop|clear)', code):
+            for match in re.finditer(r'([a-zA-Z_]\w*)\.(append|extend|remove|pop|clear|sort|reverse)', code):
                 modified.add(match.group(1))
                 
         elif lang == 'java':

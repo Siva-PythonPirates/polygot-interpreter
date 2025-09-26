@@ -64,18 +64,48 @@ async def get_version():
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
+    print("INFO:     connection open")
     try:
         while True:
             polyglot_code = await websocket.receive_text()
+            print(f"Received code for execution:\n{polyglot_code}")
             
-            # Parse the polyglot code into blocks
-            blocks = parse_code_to_tree(polyglot_code)
-            if blocks:
-                # Execute the blocks sequentially
-                for log_entry in execute_tree_generator(blocks):
-                    await websocket.send_text(log_entry)
-            else:
-                await websocket.send_text("❌ Error: Could not parse any code blocks.")
+            await websocket.send_text("🚀 Starting pipeline...")
+            
+            try:
+                # Use SharedStateOrchestrator directly
+                from advanced_orchestrator import SharedStateOrchestrator
+                orchestrator = SharedStateOrchestrator()
+                
+                # Capture all output by temporarily redirecting print
+                import sys
+                from io import StringIO
+                
+                # Create string buffer to capture output
+                output_buffer = StringIO()
+                original_stdout = sys.stdout
+                
+                try:
+                    # Redirect stdout to capture print statements
+                    sys.stdout = output_buffer
+                    
+                    # Execute the code
+                    orchestrator.parse_and_execute(polyglot_code)
+                    
+                finally:
+                    # Restore original stdout
+                    sys.stdout = original_stdout
+                
+                # Send captured output to WebSocket
+                output = output_buffer.getvalue()
+                if output.strip():
+                    for line in output.strip().split('\n'):
+                        if line.strip():
+                            await websocket.send_text(line)
+                
+            except Exception as e:
+                await websocket.send_text(f"❌ Error: {e}")
+                print(f"Execution error: {e}")
             
             await websocket.send_text("--- Pipeline Finished ---")
 
