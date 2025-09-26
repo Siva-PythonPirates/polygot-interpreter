@@ -50,22 +50,59 @@ System.out.println("Message: " + message);
 
 ---
 
-### 🎯 **Nested Language Blocks with Cross-Language Conversion**
+### 🎯 **Revolutionary Nested Language Blocks**
 
-**World's first** nested language execution: embed Python code inside C loops with **automatic syntax conversion**!
+**World's first** nested language execution with **two powerful modes**:
+
+#### **🔄 Loop-Based Nested Execution**
+Embed multiple languages inside C loops with automatic iteration:
+
+```poly
+::py
+results = []
+::/py
+
+::c
+int numbers[] = {1, 2, 3, 4, 5};
+for(int i = 0; i < 5; i++) {
+    ::py 
+    print(f"Processing number {numbers[i]}")
+    results.append(numbers[i] ** 2)
+    ::/py
+    
+    ::java 
+    System.out.println("Java says: " + numbers[i] + " squared!");
+    ::/java
+}
+::/c
+
+::py
+print("Final results:", results)
+::/py
+```
+
+#### **⚡ Simple Nested Execution**
+Cross-language variable sharing within single blocks:
 
 ```poly
 ::c
-int numbers[] = {1, 2, 3, 4, 5};
-printf("Square calculations:\n");
-for(int i = 0; i < 5; i++) {
-    printf("Number %d squared = ", numbers[i]);
-    ::py print(numbers[i] * numbers[i]) ::/py
-}
+int a = 5;
+int b = 10;
+
+::py
+result = a * b * 2
+print("Python calculated:", result)
+::/py
+
+printf("C result: %d\n", a + b + result);
 ::/c
 ```
 
-✨ Magic happens: The Python `print()` statement automatically converts to C `printf()` calls during execution!
+✨ **Magic Features:**
+- **Automatic variable extraction**: C variables (`a`, `b`) automatically available in Python
+- **Bidirectional communication**: Python results (`result`) automatically available in C
+- **Cross-language type conversion**: Seamless int, float, string, array conversions
+- **Real-time execution**: WebSocket streaming shows each step
 
 ---
 
@@ -228,23 +265,75 @@ npm run dev
 
 ---
 
+## 🧪 Testing & Development
+
+### **Test Suite Organization**
+
+All test files are organized in `backend/tests/` for a clean workspace:
+
+```
+backend/tests/
+├── test_nested_debug.py          # Your simple nested code tests
+├── test_websocket_nested.py      # WebSocket integration tests  
+├── test_your_websocket.py        # Custom nested execution tests
+├── test_enhanced_nested.py       # Advanced nested features
+├── test_debug_toggle.py          # Debug mode functionality
+└── ... (30+ comprehensive tests)
+```
+
+### **Run Tests**
+
+```bash
+cd backend
+
+# Test simple nested execution
+python tests/test_nested_debug.py
+
+# Test WebSocket integration  
+python tests/test_websocket_nested.py
+
+# Test your custom code
+python tests/test_your_websocket.py
+```
+
+### **Expected Output**
+
+**Simple Nested Execution:**
+```
+=== Testing NESTED with DEBUG_MODE = True ===
+🔄 No loop found - executing simple nested blocks
+🔄 Extracted C variables: {'a': 5, 'b': 10}
+Python calculated: 100
+C result: 115
+
+=== Testing NESTED with DEBUG_MODE = False ===
+Python calculated: 100
+C result: 115
+```
+
+---
+
 ## 📊 What Makes This Special?
 
 ### 🌟 Innovation Highlights
 
-* **First-ever** nested language execution with automatic conversion
-* **Zero boilerplate** - no manual JSON state management
-* **Production-ready** - full deployment pipeline included
-* **Developer experience** - professional debugging and clean output modes
-* **Cross-platform** - works in browser, no local setup required
+* **🎯 Dual nested execution modes** - Loop-based iteration + simple cross-language blocks  
+* **⚡ Zero boilerplate** - Automatic variable extraction and injection
+* **🔄 Bidirectional communication** - Variables flow seamlessly between languages
+* **🌐 Production-ready** - Full Vercel + Codespaces deployment pipeline
+* **🎛️ Professional developer experience** - Debug toggle, WebSocket streaming, clean UI
+* **📱 Cross-platform** - Works in any browser, no local setup required
+* **🧪 Comprehensive testing** - 30+ test cases covering all execution modes
 
 ### 🔬 Technical Achievements
 
-* **Advanced AST parsing** for variable detection across languages
-* **Intelligent type conversion** (C arrays ↔ Python lists ↔ Java arrays)
-* **Real-time WebSocket pipeline** with proper error handling
-* **Docker containerization** for secure, isolated execution
-* **Professional logging system** with emoji-enhanced debug output
+* **🧠 Advanced nested block parsing** - Detects loop vs simple nested structures
+* **🔄 Smart variable extraction** - C int declarations automatically parsed and injected  
+* **⚡ Bidirectional state management** - Python results automatically available in C
+* **🌊 Real-time WebSocket streaming** - Live execution feedback with debug toggle
+* **🐳 Secure Docker execution** - Isolated containers for each language
+* **🎨 Professional UI/UX** - Syntax highlighting, file upload, responsive design
+* **🧪 Comprehensive test suite** - 30+ test cases in organized structure
 
 ### 🏗️ **SharedStateOrchestrator Architecture**
 
