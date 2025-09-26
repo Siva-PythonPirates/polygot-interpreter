@@ -65,8 +65,12 @@ System.out.println("Average: " + average);
 """
 
 # Test 5: Your Nested Block Syntax (from your original request)
-# Note: This now works with nested block processing!
+# Note: This now works with enhanced nested block processing!
 nested_complex = """
+::py
+l=[]
+::/py
+
 ::c
 int a[] = {1, 2, 3, 4, 5};
 for(int i = 0; i < 5; i++) {
@@ -82,7 +86,6 @@ for(int i = 0; i < 5; i++) {
 ::/c
 
 ::py
-l=[]
 print("Final list:", l)
 ::/py
 """
