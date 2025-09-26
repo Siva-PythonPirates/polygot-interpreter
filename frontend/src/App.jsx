@@ -136,9 +136,10 @@ const useStore = create((set, get) => ({
     newSocket.onerror = () => set({ isRunning: false });
   },
   runCode: () => {
-    const { socket, code } = get();
+    const { socket, code, debugMode } = get();
     if (socket && socket.readyState === WebSocket.OPEN) {
-      set({ outputLog: ["🚀 Starting pipeline...\n"], isRunning: true });
+      const initialMessage = debugMode ? ["🚀 Starting pipeline...\n"] : [];
+      set({ outputLog: initialMessage, isRunning: true });
       socket.send(code);
     }
   },

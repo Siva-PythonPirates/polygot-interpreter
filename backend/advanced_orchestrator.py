@@ -576,7 +576,22 @@ def execute_tree_generator(blocks: list, input_state: dict = None):
                 
             except json.JSONDecodeError:
                 debug_print(f"📄 {lang} produced user output (no variable updates)")
-                yield output
+                # The output contains both program output and JSON variable state
+                # Split and only show the program output part
+                if "VARS_OUTPUT:" in output:
+                    # Split on VARS_OUTPUT and take only the first part (program output)
+                    program_output = output.split("VARS_OUTPUT:")[0].strip()
+                    if program_output:
+                        yield program_output
+                else:
+                    # No VARS_OUTPUT marker, check if it's pure JSON (variables only)
+                    output_lines = output.strip().split('\n')
+                    for line in output_lines:
+                        line = line.strip()
+                        # Skip lines that are pure JSON objects (variable states)
+                        if not (line.startswith('{') and line.endswith('}') and '"' in line):
+                            if line:  # Only yield non-empty lines
+                                yield line
                 
         except Exception as e:
             debug_print(f"❌ Error in {lang} block: {e}")
