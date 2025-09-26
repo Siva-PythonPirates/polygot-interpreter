@@ -1,0 +1,13 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "env": {
+    "VITE_BACKEND_URL": "https://musical-waddle-rxwr97j7567cpjgw-8000.app.github.dev"
+  },
+  "build": {
+    "env": {
+      "VITE_BACKEND_URL": "https://musical-waddle-rxwr97j7567cpjgw-8000.app.github.dev"
+    }
+  }
+}

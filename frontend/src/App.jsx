@@ -41,6 +41,39 @@ const highlightCode = (code) => {
   return Prism.highlight(code, Prism.languages.clike, 'clike');
 };
 
+// Backend URL configuration
+const getBackendUrl = () => {
+  // Debug: log environment variables
+  console.log('Environment variables:', {
+    VITE_BACKEND_URL: import.meta.env.VITE_BACKEND_URL,
+    NODE_ENV: import.meta.env.NODE_ENV,
+    MODE: import.meta.env.MODE
+  });
+  
+  // Check for environment variable first, then check if we're on production domain
+  if (import.meta.env.VITE_BACKEND_URL) {
+    console.log('Using environment variable:', import.meta.env.VITE_BACKEND_URL);
+    return import.meta.env.VITE_BACKEND_URL;
+  }
+  
+  // If we're on Vercel (production), use the Codespaces URL
+  if (window.location.hostname.includes('vercel.app')) {
+    console.log('Detected Vercel deployment, using Codespaces URL');
+    return 'https://musical-waddle-rxwr97j7567cpjgw-8000.app.github.dev';
+  }
+  
+  // Default to localhost for development
+  console.log('Using localhost for development');
+  return 'http://localhost:8000';
+};
+
+const getWebSocketUrl = () => {
+  const backendUrl = getBackendUrl();
+  const wsUrl = backendUrl.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws';
+  console.log('WebSocket URL:', wsUrl);
+  return wsUrl;
+};
+
 // The Zustand store and App component are mostly the same
 const useStore = create((set, get) => ({
   code: initialCode,
@@ -55,7 +88,7 @@ const useStore = create((set, get) => ({
     const newDebugMode = !debugMode;
     
     try {
-      const response = await fetch('http://localhost:8000/debug/toggle', {
+      const response = await fetch(`${getBackendUrl()}/debug/toggle`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: newDebugMode })
@@ -63,25 +96,34 @@ const useStore = create((set, get) => ({
       
       if (response.ok) {
         set({ debugMode: newDebugMode });
+      } else {
+        // If backend not available, just toggle locally
+        console.warn('Backend not available, toggling debug mode locally only');
+        set({ debugMode: newDebugMode });
       }
     } catch (error) {
-      console.error('Failed to toggle debug mode:', error);
+      console.warn('Backend not available for debug toggle, using local toggle only:', error.message);
+      // Still allow local debug toggle even if backend is down
+      set({ debugMode: newDebugMode });
     }
   },
   fetchDebugStatus: async () => {
     try {
-      const response = await fetch('http://localhost:8000/debug/status');
+      const response = await fetch(`${getBackendUrl()}/debug/status`);
       if (response.ok) {
         const data = await response.json();
         set({ debugMode: data.debug_mode });
+      } else {
+        console.warn('Backend not available, using default debug mode');
       }
     } catch (error) {
-      console.error('Failed to fetch debug status:', error);
+      console.warn('Backend not available for debug status, using default debug mode:', error.message);
+      // Don't throw error, just use default debug mode
     }
   },
   connect: () => {
     if (get().socket) return;
-    const newSocket = new WebSocket('ws://localhost:8000/ws');
+    const newSocket = new WebSocket(getWebSocketUrl());
     newSocket.onopen = () => set({ socket: newSocket });
     newSocket.onmessage = (event) => {
       const log = event.data;
