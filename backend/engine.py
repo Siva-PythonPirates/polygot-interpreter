@@ -27,7 +27,14 @@ def execute_in_docker(lang: str, code: str, state_json: str) -> str:
     if lang == 'py':
         final_code = textwrap.dedent(final_code)
     
-    if template:
+    # Special handling for Java - don't wrap if it's already a complete class
+    if template and lang == 'java':
+        # Check if the code already contains a complete class definition
+        if 'public class Main' in code and 'public static void main' in code:
+            final_code = code  # Use as-is, don't wrap in template
+        else:
+            final_code = template.format(code=final_code)
+    elif template:
         final_code = template.format(code=final_code)
 
     with tempfile.TemporaryDirectory() as temp_dir:
