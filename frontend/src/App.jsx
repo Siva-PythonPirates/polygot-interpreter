@@ -296,7 +296,9 @@ const App = () => {
                   '🏁', '===== POLYGLOT', '📊 Final variable', '📊 No variables persisted',
                   '✅ Pipeline completed', 'Starting fresh', 'Receiving variables',
                   'Variables being modified', 'Created:', 'Modified:', 'Passing to',
-                  'Pipeline Finished'
+                  'Pipeline Finished', '==================================================',
+                  'DEBUG Java modified vars:', 'DEBUG Java code:', '---',
+                  'PIPELINE EXECUTION SUMMARY', 'POLYGLOT EXECUTION PIPELINE'
                 ];
                 
                 return !debugPatterns.some(pattern => line.includes(pattern));
