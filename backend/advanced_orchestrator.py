@@ -2,9 +2,10 @@ import re
 import json
 import textwrap
 from engine import execute_in_docker
+from typing import Dict, List, Any, Tuple
 
 # Debug configuration
-DEBUG_MODE = True  # Set to False to hide all debug output
+DEBUG_MODE = True
 
 def debug_print(message: str):
     """Print debug message only if debug mode is enabled"""
@@ -21,454 +22,482 @@ def get_debug_mode() -> bool:
     """Get current debug mode status"""
     return DEBUG_MODE
 
-def parse_nested_structure(code_str: str) -> dict:
-    """Parse nested language blocks and return structured representation"""
+class SharedStateOrchestrator:
+    """Orchestrator that maintains shared state across multiple language executions"""
     
-    debug_print(f"🔍 Parsing code for nested structure:\n{code_str}")
+    def __init__(self):
+        self.global_state = {}  # Shared variables across all languages
+        self.language_contexts = {}  # Language-specific execution contexts
     
-    # Find the outermost language block
-    outer_match = re.search(r'::(\w+)(.*?)::/\1', code_str, re.DOTALL)
-    if not outer_match:
-        debug_print("❌ No outer match found")
-        return None
-    
-    outer_lang = outer_match.group(1)
-    outer_content = outer_match.group(2)
-    
-    debug_print(f"✅ Found outer block: {outer_lang}")
-    debug_print(f"📄 Outer content:\n{outer_content}")
-    
-    # Look for nested blocks within the outer content
-    nested_blocks = []
-    nested_pattern = re.compile(r'::(\w+)(.*?)::/\1', re.DOTALL)
-    
-    for nested_match in nested_pattern.finditer(outer_content):
-        nested_lang = nested_match.group(1)
-        nested_code = nested_match.group(2).strip()
+    def parse_mixed_structure(self, code_str: str) -> List[Dict]:
+        """Parse mixed sequential and nested language blocks"""
         
-        debug_print(f"🔍 Found nested {nested_lang} block: {nested_code}")
+        debug_print(f"Parsing mixed structure:\n{code_str}")
         
-        nested_blocks.append({
-            'lang': nested_lang,
-            'code': nested_code,
-            'start_pos': nested_match.start(),
-            'end_pos': nested_match.end(),
-            'full_match': nested_match.group(0)
-        })
+        # Find the outermost language block
+        outer_match = re.search(r'::(\w+)(.*?)::/\1', code_str, re.DOTALL)
+        if not outer_match:
+            debug_print("No outer block found - treating as sequential blocks")
+            return self.parse_sequential_blocks(code_str)
+        
+        outer_lang = outer_match.group(1)
+        outer_content = outer_match.group(2)
+        
+        debug_print(f"Found outer block: {outer_lang}")
+        
+        # Parse the structure into executable blocks
+        blocks = self.parse_outer_content(outer_lang, outer_content)
+        
+        return blocks
     
-    result = {
-        'outer_lang': outer_lang,
-        'outer_content': outer_content,
-        'nested_blocks': nested_blocks,
-        'has_nested': len(nested_blocks) > 0
-    }
+    def parse_outer_content(self, outer_lang: str, content: str) -> List[Dict]:
+        """Parse content that may contain sequential and nested blocks"""
+        blocks = []
+        current_pos = 0
+        
+        # Split content by language block boundaries
+        # Look for standalone language blocks first
+        standalone_pattern = r'::(\w+)\s*(.*?)\s*::/\1'
+        
+        while current_pos < len(content):
+            # Look for next standalone block
+            standalone_match = re.search(standalone_pattern, content[current_pos:], re.DOTALL)
+            
+            if standalone_match:
+                # Found a standalone block
+                match_start = current_pos + standalone_match.start()
+                match_end = current_pos + standalone_match.end()
+                
+                # Add any outer language content before this block
+                before_content = content[current_pos:match_start].strip()
+                if before_content:
+                    blocks.append({
+                        'type': 'outer',
+                        'lang': outer_lang,
+                        'code': before_content,
+                        'is_nested': False
+                    })
+                
+                # Add the standalone block
+                block_lang = standalone_match.group(1)
+                block_code = standalone_match.group(2).strip()
+                blocks.append({
+                    'type': 'standalone',
+                    'lang': block_lang,
+                    'code': block_code,
+                    'is_nested': False
+                })
+                
+                current_pos = match_end
+            else:
+                # No more standalone blocks - add remaining content as outer block
+                remaining_content = content[current_pos:].strip()
+                if remaining_content:
+                    # Check for nested blocks in remaining content
+                    processed_content, nested_found = self.process_nested_blocks(remaining_content, outer_lang)
+                    blocks.append({
+                        'type': 'outer',
+                        'lang': outer_lang,
+                        'code': processed_content,
+                        'is_nested': nested_found,
+                        'original_code': remaining_content if nested_found else None
+                    })
+                break
+        
+        return blocks
     
-    debug_print(f"📊 Parsing result: {len(nested_blocks)} nested blocks found")
-    return result
+    def process_nested_blocks(self, content: str, outer_lang: str) -> Tuple[str, bool]:
+        """Process nested blocks within outer language content"""
+        
+        nested_pattern = r'::(\w+)\s*(.*?)\s*::/\1'
+        nested_blocks = list(re.finditer(nested_pattern, content, re.DOTALL))
+        
+        if not nested_blocks:
+            return content, False
+        
+        debug_print(f"Found {len(nested_blocks)} nested blocks in {outer_lang}")
+        
+        # Store nested block information for later execution
+        processed_content = content
+        for i, match in enumerate(reversed(nested_blocks)):  # Reverse to maintain positions
+            placeholder = f"/* NESTED_BLOCK_{outer_lang}_{i} */"
+            
+            # Store block info in global state for execution
+            block_key = f"nested_{outer_lang}_{i}"
+            self.global_state[f"__{block_key}__"] = {
+                'lang': match.group(1),
+                'code': match.group(2).strip(),
+                'placeholder': placeholder
+            }
+            
+            # Replace with placeholder
+            processed_content = processed_content[:match.start()] + placeholder + processed_content[match.end():]
+        
+        return processed_content, True
+    
+    def parse_sequential_blocks(self, code_str: str) -> List[Dict]:
+        """Parse sequential language blocks"""
+        blocks = []
+        pattern = re.compile(r'::(\w+)\s*(.*?)\s*::/\1', re.DOTALL)
+        
+        for match in pattern.finditer(code_str):
+            lang = match.group(1).strip()
+            code = textwrap.dedent(match.group(2)).strip()
+            blocks.append({
+                'type': 'sequential',
+                'lang': lang,
+                'code': code,
+                'is_nested': False
+            })
+        
+        return blocks
 
-def execute_nested_block(structure: dict, current_state: dict):
-    """Execute nested language structure by expanding inner blocks"""
-    
-    if not structure['has_nested']:
-        # No nesting, execute as regular block
-        return structure['outer_content']
-    
-    outer_content = structure['outer_content']
-    updated_state = current_state.copy()
-    
-    # Process nested blocks in reverse order to maintain positions
-    for nested_block in reversed(structure['nested_blocks']):
-        nested_lang = nested_block['lang']
-        nested_code = nested_block['code']
-        start_pos = nested_block['start_pos']
-        end_pos = nested_block['end_pos']
+    def execute_blocks(self, blocks: List[Dict]) -> None:
+        """Execute all blocks while maintaining shared state"""
         
-        debug_print(f"🔄 Executing nested {nested_lang} block")
+        debug_print(f"Executing {len(blocks)} blocks with shared state")
+        
+        for i, block in enumerate(blocks):
+            debug_print(f"\n=== BLOCK {i+1}/{len(blocks)}: {block['lang'].upper()} ===")
+            
+            if block['type'] == 'standalone':
+                self.execute_standalone_block(block)
+            elif block['type'] == 'outer':
+                if block['is_nested']:
+                    self.execute_outer_with_nested(block)
+                else:
+                    self.execute_standalone_block(block)
+            elif block['type'] == 'sequential':
+                self.execute_standalone_block(block)
+    
+    def execute_standalone_block(self, block: Dict) -> None:
+        """Execute a standalone language block"""
+        lang = block['lang']
+        code = block['code']
+        
+        debug_print(f"Executing standalone {lang} block")
+        
+        # Get variables this block references
+        referenced_vars = self.extract_variable_references(code, lang)
+        available_vars = {k: v for k, v in self.global_state.items() 
+                         if k in referenced_vars and not k.startswith('__')}
+        
+        debug_print(f"Available variables: {list(available_vars.keys())}")
+        
+        # Inject variable declarations
+        injected_code = self.inject_variable_declarations(lang, available_vars)
+        
+        # Detect variables this block will modify
+        modified_vars = self.extract_modified_variables(code, lang)
+        
+        # Add output capture for modified variables
+        output_capture = self.inject_output_capture(lang, modified_vars)
+        
+        # Combine code
+        full_code = injected_code + code + output_capture
+        
+        debug_print(f"Full {lang} code:\n{full_code}")
         
         try:
-            # Get referenced variables for this nested block
-            referenced_vars = extract_variable_references(nested_code, nested_lang)
-            available_vars = {k: v for k, v in updated_state.items() if k in referenced_vars}
+            # Execute in Docker
+            output = execute_in_docker(lang, full_code, "{}")
             
-            # Prepare nested block execution
-            injected_declarations = inject_variable_declarations(nested_lang, available_vars)
-            
-            # Special handling for cross-language conversions to C
-            if nested_lang == 'py' and 'print(' in nested_code:
-                # Convert Python print to C printf
-                debug_print(f"🎯 Detected Python print in C context: {nested_code}")
-                
-                # Extract what's being printed
-                import re
-                print_match = re.search(r'print\(([^)]+)\)', nested_code)
-                if print_match:
-                    print_arg = print_match.group(1).strip()
-                    debug_print(f"📤 Print argument: {print_arg}")
+            # Parse output for variable updates
+            try:
+                if output.strip():
+                    # Try to extract JSON from the end of output
+                    lines = output.strip().split('\n')
+                    for line in reversed(lines):
+                        line = line.strip()
+                        if line.startswith('{') and line.endswith('}'):
+                            try:
+                                new_vars = json.loads(line)
+                                self.global_state.update(new_vars)
+                                debug_print(f"Updated global state: {new_vars}")
+                                break
+                            except json.JSONDecodeError:
+                                continue
                     
-                    # Handle multiple arguments (comma-separated)
-                    if ',' in print_arg:
-                        # Multiple arguments - convert to multiple printf statements
-                        args = [arg.strip() for arg in print_arg.split(',')]
-                        printf_parts = []
-                        for arg in args:
-                            if arg.startswith('"') and arg.endswith('"'):
-                                printf_parts.append(f'printf({arg})')
-                            else:
-                                printf_parts.append(f'printf("%d", {arg})')
-                        c_replacement = '; '.join(printf_parts) + ';'
-                    else:
-                        # Single argument
-                        if print_arg.startswith('"') and print_arg.endswith('"'):
-                            c_replacement = f'printf({print_arg});'
-                        else:
-                            c_replacement = f'printf("%d", {print_arg});'
+                    # Show program output (everything except the JSON state)
+                    program_output = []
+                    for line in lines:
+                        if not (line.strip().startswith('{') and line.strip().endswith('}') and '"' in line):
+                            program_output.append(line)
                     
-                    debug_print(f"🔄 Converting to C printf: {c_replacement}")
-                    actual_output = c_replacement
-                else:
-                    actual_output = f'/* Could not parse Python: {nested_code} */'
-            
-            elif nested_lang == 'java' and ('System.out.println' in nested_code or 'System.out.print' in nested_code):
-                # Convert Java System.out to C printf
-                debug_print(f"🎯 Detected Java System.out in C context: {nested_code}")
-                
-                # Extract what's being printed
-                import re
-                # Match both println and print
-                java_match = re.search(r'System\.out\.print(?:ln)?\s*\(([^)]+)\)', nested_code)
-                if java_match:
-                    print_arg = java_match.group(1).strip()
-                    debug_print(f"📤 Java print argument: {print_arg}")
-                    
-                    # Handle Java string concatenation with +
-                    if '+' in print_arg:
-                        # Java string concatenation - convert to C printf with format specifiers
-                        # For now, handle simple cases like "string " + variable
-                        parts = [part.strip() for part in print_arg.split('+')]
-                        printf_format = ""
-                        printf_args = []
+                    if program_output:
+                        print('\n'.join(program_output))
                         
-                        for part in parts:
-                            if part.startswith('"') and part.endswith('"'):
-                                # String literal - add to format
-                                printf_format += part[1:-1]  # Remove quotes
-                            else:
-                                # Variable - add format specifier and argument
-                                printf_format += "%d"
-                                printf_args.append(part)
-                        
-                        if printf_args:
-                            c_replacement = f'printf("{printf_format}", {", ".join(printf_args)});'
-                        else:
-                            c_replacement = f'printf("{printf_format}");'
-                    else:
-                        # Simple argument
-                        if print_arg.startswith('"') and print_arg.endswith('"'):
-                            c_replacement = f'printf({print_arg});'
-                        else:
-                            c_replacement = f'printf("%d", {print_arg});'
-                    
-                    # Add newline for println
-                    if 'println' in nested_code:
-                        c_replacement = c_replacement[:-1] + 'printf("\\n");'
-                    
-                    debug_print(f"🔄 Converting to C printf: {c_replacement}")
-                    actual_output = c_replacement
-                else:
-                    actual_output = f'/* Could not parse Java: {nested_code} */'
-            else:
-                # Regular nested execution
-                modified_vars = extract_modified_variables(nested_code, nested_lang)
-                output_capture = inject_output_capture(nested_lang, {k: updated_state.get(k, 0) for k in modified_vars}, nested_code)
+            except Exception as e:
+                debug_print(f"Error parsing output: {e}")
+                print(output)
                 
-                full_nested_code = injected_declarations + nested_code + output_capture
-                
-                debug_print(f"🔍 Nested {nested_lang} code:\n{full_nested_code}")
-                
-                # Execute nested block
-                try:
-                    output = execute_in_docker(nested_lang, full_nested_code, "{}")
-                    
-                    # Try to parse output for variable updates
-                    actual_output = ""
-                    try:
-                        new_vars = json.loads(output.strip())
-                        updated_state.update(new_vars)
-                        debug_print(f"📊 Nested block updated variables: {new_vars}")
-                    except json.JSONDecodeError:
-                        # It's actual program output
-                        actual_output = output.strip()
-                        debug_print(f"📄 Nested block produced output: {actual_output}")
-                
-                except Exception as e:
-                    debug_print(f"❌ Error executing nested {nested_lang}: {e}")
-                    actual_output = f"/* Error: {e} */"
-            
-            # Replace the nested block with its output in outer content
-            before = outer_content[:start_pos]
-            after = outer_content[end_pos:]
-            
-            # Use actual output if any, otherwise empty
-            outer_content = before + actual_output + after
-            
-            # Update positions for remaining blocks (only those that come AFTER this one)
-            pos_diff = len(actual_output) - (end_pos - start_pos)
-            for other_block in structure['nested_blocks']:
-                if other_block['start_pos'] > end_pos:  # Only update blocks that come after
-                    other_block['start_pos'] += pos_diff
-                    other_block['end_pos'] += pos_diff
-                    
         except Exception as e:
-            debug_print(f"❌ Error executing nested {nested_lang}: {e}")
-            error_msg = f"/* Error: {e} */"
-            before = outer_content[:start_pos]
-            after = outer_content[end_pos:]
-            outer_content = before + error_msg + after
+            print(f"Error executing {lang}: {e}")
     
-    return outer_content, updated_state
-
-def parse_code_to_tree(code_str: str) -> list:
-    """Parse language blocks with support for nesting"""
-    
-    # First check for nested structure
-    nested_structure = parse_nested_structure(code_str)
-    
-    if nested_structure and nested_structure['has_nested']:
-        debug_print(f"🔍 Detected nested structure: {nested_structure['outer_lang']} with nested blocks")
-        return [{
-            'lang': nested_structure['outer_lang'],
-            'code': nested_structure['outer_content'],
-            'nested_structure': nested_structure,
-            'is_nested': True
-        }]
-    
-    # Fallback to sequential parsing
-    blocks = []
-    pattern = re.compile(r'::(\w+)\s*(.*?)\s*::/\1', re.DOTALL)
-    
-    for match in pattern.finditer(code_str):
-        lang = match.group(1).strip()
-        code = textwrap.dedent(match.group(2)).strip()
-        blocks.append({
-            'lang': lang, 
-            'code': code,
-            'is_nested': False
+    def execute_outer_with_nested(self, block: Dict) -> None:
+        """Execute outer language block that contains nested blocks"""
+        lang = block['lang']
+        code = block['code']
+        original_code = block.get('original_code', code)
+        
+        debug_print(f"Executing {lang} block with nested components")
+        
+        # First, execute any nested blocks and collect their outputs
+        nested_outputs = {}
+        
+        # Find all nested block placeholders and execute them
+        for key, nested_info in self.global_state.items():
+            if key.startswith(f'__nested_{lang}_'):
+                nested_lang = nested_info['lang']
+                nested_code = nested_info['code']
+                placeholder = nested_info['placeholder']
+                
+                debug_print(f"Executing nested {nested_lang} block: {nested_code}")
+                
+                # Execute nested block with current global state
+                try:
+                    referenced_vars = self.extract_variable_references(nested_code, nested_lang)
+                    available_vars = {k: v for k, v in self.global_state.items() 
+                                   if k in referenced_vars and not k.startswith('__')}
+                    
+                    injected_code = self.inject_variable_declarations(nested_lang, available_vars)
+                    modified_vars = self.extract_modified_variables(nested_code, nested_lang)
+                    output_capture = self.inject_output_capture(nested_lang, modified_vars)
+                    
+                    full_nested_code = injected_code + nested_code + output_capture
+                    
+                    nested_output = execute_in_docker(nested_lang, full_nested_code, "{}")
+                    
+                    # Parse nested output for state updates
+                    if nested_output.strip():
+                        lines = nested_output.strip().split('\n')
+                        for line in reversed(lines):
+                            line = line.strip()
+                            if line.startswith('{') and line.endswith('}'):
+                                try:
+                                    new_vars = json.loads(line)
+                                    self.global_state.update(new_vars)
+                                    debug_print(f"Nested block updated state: {new_vars}")
+                                    break
+                                except json.JSONDecodeError:
+                                    continue
+                        
+                        # Collect program output from nested block
+                        program_output = []
+                        for line in lines:
+                            if not (line.strip().startswith('{') and line.strip().endswith('}') and '"' in line):
+                                program_output.append(line)
+                        
+                        nested_outputs[placeholder] = '\n'.join(program_output)
+                    
+                except Exception as e:
+                    debug_print(f"Error executing nested {nested_lang}: {e}")
+                    nested_outputs[placeholder] = f"/* Error: {e} */"
+        
+        # Now execute the outer block
+        # Replace placeholders with actual nested outputs if needed
+        final_code = code
+        for placeholder, output in nested_outputs.items():
+            if placeholder in final_code and output:
+                print(output)  # Print nested block output
+        
+        # Execute outer block normally
+        self.execute_standalone_block({
+            'lang': lang,
+            'code': original_code,
+            'type': 'outer'
         })
-        
-    return blocks
 
-def inject_variable_declarations(lang: str, variables: dict) -> str:
-    """Automatically inject variable declarations based on language"""
-    if not variables:
-        return ""
-    
-    declarations = []
-    
-    if lang == 'c':
-        for var_name, value in variables.items():
-            if isinstance(value, list):
-                size = len(value)
-                if all(isinstance(x, int) for x in value):
-                    arr_str = ", ".join(map(str, value))
-                    declarations.append(f"int {var_name}[] = {{{arr_str}}};")
-                elif all(isinstance(x, float) for x in value):
-                    arr_str = ", ".join(map(str, value))
-                    declarations.append(f"float {var_name}[] = {{{arr_str}}};")
-                elif all(isinstance(x, str) and len(x) == 1 for x in value):
-                    arr_str = ", ".join([f"'{x}'" for x in value])
-                    declarations.append(f"char {var_name}[] = {{{arr_str}}};")
-                declarations.append(f"int {var_name}_size = {size};")
-            elif isinstance(value, int):
-                declarations.append(f"int {var_name} = {value};")
-            elif isinstance(value, float):
-                declarations.append(f"float {var_name} = {value}f;")
-            elif isinstance(value, str):
-                if len(value) == 1:
-                    declarations.append(f"char {var_name} = '{value}';")
-                else:
-                    declarations.append(f'char {var_name}[] = "{value}";')
-                
-    elif lang == 'py':
-        for var_name, value in variables.items():
-            if isinstance(value, list):
-                declarations.append(f"{var_name} = {value}")
-            elif isinstance(value, dict):
-                declarations.append(f"{var_name} = {value}")
-            elif isinstance(value, (int, float, str, bool)):
-                declarations.append(f"{var_name} = {repr(value)}")
-            elif value is None:
-                declarations.append(f"{var_name} = None")
-                
-    elif lang == 'java':
-        for var_name, value in variables.items():
-            if isinstance(value, list):
-                if all(isinstance(x, int) for x in value):
-                    arr_str = ", ".join(map(str, value))
-                    declarations.append(f"int[] {var_name} = {{{arr_str}}};")
-                elif all(isinstance(x, float) for x in value):
-                    arr_str = ", ".join(map(str, value))
-                    declarations.append(f"float[] {var_name} = {{{arr_str}}}f;")
-                elif all(isinstance(x, str) for x in value):
-                    arr_str = ", ".join([f'"{x}"' for x in value])
-                    declarations.append(f"String[] {var_name} = {{{arr_str}}};")
-            elif isinstance(value, int):
-                declarations.append(f"int {var_name} = {value};")
-            elif isinstance(value, float):
-                declarations.append(f"float {var_name} = {value}f;")
-            elif isinstance(value, bool):
-                declarations.append(f"boolean {var_name} = {'true' if value else 'false'};")
-            elif isinstance(value, str):
-                declarations.append(f'String {var_name} = "{value}";')
-    
-    return "\n".join(declarations) + "\n" if declarations else ""
-
-def inject_output_capture(lang: str, variables: dict, user_code: str = "") -> str:
-    """Automatically inject code to capture and output variables as JSON"""
-    if not variables:
-        return ""
-    
-    if lang == 'c':
-        # Analyze the user code to determine variable types and categories
-        array_vars = {}  # var_name -> type
-        string_vars = set()
-        scalar_vars = {}  # var_name -> type
+    def extract_variable_references(self, code: str, lang: str) -> set:
+        """Extract variable names referenced in code"""
+        references = set()
         
-        for var_name in variables.keys():
-            # Check for strings FIRST (char arrays with string literals)
-            if re.search(rf'char\s+{var_name}\s*\[\s*\d*\s*\]\s*=\s*"', user_code):
-                string_vars.add(var_name)
-            # Also check for char arrays without explicit size (strings)
-            elif re.search(rf'char\s+{var_name}\s*\[\s*\]\s*=\s*"', user_code):
-                string_vars.add(var_name)
-            # Check if variable is declared as array (with {} syntax)
-            elif re.search(rf'(int|float|double|char)\s+{var_name}\s*\[\s*\]\s*=\s*\{{', user_code):
-                match = re.search(rf'(int|float|double|char)\s+{var_name}\s*\[\s*\]\s*=\s*\{{', user_code)
-                array_vars[var_name] = match.group(1)
-            else:
-                # Determine scalar type
-                for c_type in ['int', 'float', 'double', 'char']:
-                    if re.search(rf'{c_type}\s+{var_name}\s*=', user_code):
-                        scalar_vars[var_name] = c_type
-                        break
-                else:
-                    scalar_vars[var_name] = 'int'  # default
+        # Simple pattern matching for variable names
+        var_pattern = r'\b([a-zA-Z_][a-zA-Z0-9_]*)\b'
         
-        # For C, we need to declare size variables first, then capture output
-        size_declarations = []
-        output_parts = []
+        # Language-specific exclusions
+        exclusions = {
+            'c': {'int', 'char', 'float', 'double', 'printf', 'for', 'if', 'else', 'return', 'sizeof', 'main', 'void'},
+            'py': {'import', 'def', 'class', 'if', 'else', 'for', 'while', 'print', 'len', 'max', 'min', 'sum', 'str', 'int', 'float', 'list', 'dict', 'True', 'False', 'None'},
+            'java': {'int', 'float', 'double', 'boolean', 'String', 'System', 'out', 'println', 'print', 'class', 'public', 'static', 'void', 'length', 'if', 'else', 'for', 'while', 'true', 'false'}
+        }
         
-        for var_name in variables.keys():
-            if var_name in array_vars:
-                value = variables[var_name]
-                c_type = array_vars[var_name]
-                if isinstance(value, list):
-                    # Declare size variable for arrays
-                    size_declarations.append(f'int {var_name}_size = {len(value)};')
-                    
-                    # Array output with appropriate format specifier
-                    format_spec = {'int': '%d', 'float': '%.2f', 'double': '%.2f', 'char': '%c'}[c_type]
-                    
-                    if len(output_parts) > 0:
-                        output_parts.append('printf(", ");')
-                    output_parts.append(f'printf("\\"{var_name}\\": [");')
-                    output_parts.append(f'for(int i = 0; i < {var_name}_size; i++) {{')
-                    output_parts.append(f'    printf("{format_spec}", {var_name}[i]);')
-                    output_parts.append(f'    if(i < {var_name}_size - 1) printf(", ");')
-                    output_parts.append(f'}}')
-                    output_parts.append(f'printf("]");')
-                    
-            elif var_name in string_vars:
-                # String variable
-                if len(output_parts) > 0:
-                    output_parts.append('printf(", ");')
-                output_parts.append(f'printf("\\"{var_name}\\": \\"%s\\"", {var_name});')
-                
-            else:
-                # Scalar variable with appropriate format
-                c_type = scalar_vars.get(var_name, 'int')
-                
-                if len(output_parts) > 0:
-                    output_parts.append('printf(", ");')
-                
-                if c_type == 'char':
-                    # For chars, we need quotes in JSON
-                    output_parts.append(f'printf("\\"{var_name}\\": \\"%c\\"", {var_name});')
-                else:
-                    format_spec = {'int': '%d', 'float': '%.2f', 'double': '%.2f'}[c_type]
-                    output_parts.append(f'printf("\\"{var_name}\\": {format_spec}", {var_name});')
+        for match in re.finditer(var_pattern, code):
+            var_name = match.group(1)
+            if var_name not in exclusions.get(lang, set()):
+                references.add(var_name)
         
-        if output_parts:
-            json_output = []
-            # Add size declarations first
-            json_output.extend(size_declarations)
-            # Then add JSON output code
-            json_output.append('printf("{");')
-            json_output.extend(output_parts)
-            json_output.append('printf("}");')
-            return "\n" + "\n".join(json_output)
+        return references
+    
+    def extract_modified_variables(self, code: str, lang: str) -> set:
+        """Extract variables that are modified in code"""
+        modified = set()
+        
+        if lang == 'c':
+            # C variable declarations and assignments
+            for pattern in [
+                r'(int|float|double|char)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\[\s*\]\s*=',
+                r'(int|float|double|char)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=',
+                r'([a-zA-Z_][a-zA-Z0-9_]*)\s*='
+            ]:
+                for match in re.finditer(pattern, code):
+                    if len(match.groups()) == 2:
+                        modified.add(match.group(2))
+                    else:
+                        modified.add(match.group(1))
+        
+        elif lang == 'py':
+            # Python assignments
+            for match in re.finditer(r'([a-zA-Z_][a-zA-Z0-9_]*)\s*=', code):
+                var_name = match.group(1)
+                if not re.search(r'import\s+.*' + re.escape(var_name), code):
+                    modified.add(var_name)
             
-    elif lang == 'py':
-        # For Python, capture variables and print as JSON with simple serialization
-        var_names = list(variables.keys())
-        if var_names:
+            # Python method calls that modify objects
+            for match in re.finditer(r'([a-zA-Z_][a-zA-Z0-9_]*)\s*\.\s*(append|extend|remove|pop|clear)\s*\(', code):
+                modified.add(match.group(1))
+        
+        elif lang == 'java':
+            # Java variable declarations and assignments
+            for pattern in [
+                r'(int|float|double|boolean|String)\[\]\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=',
+                r'(int|float|double|boolean|String)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=',
+                r'([a-zA-Z_][a-zA-Z0-9_]*)\s*='
+            ]:
+                for match in re.finditer(pattern, code):
+                    if len(match.groups()) == 2:
+                        modified.add(match.group(2))
+                    else:
+                        modified.add(match.group(1))
+        
+        return modified
+    
+    def inject_variable_declarations(self, lang: str, variables: dict) -> str:
+        """Inject variable declarations for each language"""
+        if not variables:
+            return ""
+        
+        declarations = []
+        
+        if lang == 'c':
+            for var_name, value in variables.items():
+                if isinstance(value, list):
+                    if all(isinstance(x, int) for x in value):
+                        arr_str = ", ".join(map(str, value))
+                        declarations.append(f"int {var_name}[] = {{{arr_str}}};")
+                        declarations.append(f"int {var_name}_size = {len(value)};")
+                elif isinstance(value, int):
+                    declarations.append(f"int {var_name} = {value};")
+                elif isinstance(value, float):
+                    declarations.append(f"float {var_name} = {value}f;")
+                elif isinstance(value, str):
+                    declarations.append(f'char {var_name}[] = "{value}";')
+        
+        elif lang == 'py':
+            for var_name, value in variables.items():
+                declarations.append(f"{var_name} = {repr(value)}")
+        
+        elif lang == 'java':
+            for var_name, value in variables.items():
+                if isinstance(value, list):
+                    if all(isinstance(x, int) for x in value):
+                        arr_str = ", ".join(map(str, value))
+                        declarations.append(f"int[] {var_name} = {{{arr_str}}};")
+                elif isinstance(value, int):
+                    declarations.append(f"int {var_name} = {value};")
+                elif isinstance(value, float):
+                    declarations.append(f"float {var_name} = {value}f;")
+                elif isinstance(value, bool):
+                    declarations.append(f"boolean {var_name} = {'true' if value else 'false'};")
+                elif isinstance(value, str):
+                    declarations.append(f'String {var_name} = "{value}";')
+        
+        return "\n".join(declarations) + "\n" if declarations else ""
+    
+    def inject_output_capture(self, lang: str, variables: set) -> str:
+        """Inject code to capture variable states as JSON"""
+        if not variables:
+            return ""
+        
+        if lang == 'py':
+            var_list = list(variables)
             return f"""
 import json
-
 result_dict = {{}}
-{chr(10).join([f'if "{var}" in locals(): result_dict["{var}"] = {var}' for var in var_names])}
+{chr(10).join([f'if "{var}" in locals(): result_dict["{var}"] = {var}' for var in var_list])}
 print(json.dumps(result_dict))"""
-            
-    elif lang == 'java':
-        # For Java, we need to build JSON manually (no external libs)
-        if variables:
-            var_names = list(variables.keys())
-            java_json = []
-            java_json.append('System.out.print("{");')
-            
-            for i, var_name in enumerate(var_names):
-                value = variables[var_name]
-                if isinstance(value, list):
-                    # Handle different array types
-                    if all(isinstance(x, int) for x in value):
-                        java_json.append(f'System.out.print("\\"{var_name}\\": [");')
-                        java_json.append(f'for(int i = 0; i < {var_name}.length; i++) {{')
-                        java_json.append(f'    System.out.print({var_name}[i]);')
-                        java_json.append(f'    if(i < {var_name}.length - 1) System.out.print(", ");')
-                        java_json.append(f'}}')
-                        java_json.append(f'System.out.print("]");')
-                    elif all(isinstance(x, str) for x in value):
-                        java_json.append(f'System.out.print("\\"{var_name}\\": [");')
-                        java_json.append(f'for(int i = 0; i < {var_name}.length; i++) {{')
-                        java_json.append(f'    System.out.print("\\"" + {var_name}[i] + "\\"");')
-                        java_json.append(f'    if(i < {var_name}.length - 1) System.out.print(", ");')
-                        java_json.append(f'}}')
-                        java_json.append(f'System.out.print("]");')
-                elif isinstance(value, str):
-                    java_json.append(f'System.out.print("\\"{var_name}\\": \\"" + {var_name} + "\\"");')
-                elif isinstance(value, bool):
+        
+        elif lang == 'java':
+            # Java JSON output (simplified)
+            var_list = list(variables)
+            if var_list:
+                java_json = ['System.out.print("{");']
+                for i, var_name in enumerate(var_list):
+                    if i > 0:
+                        java_json.append('System.out.print(", ");')
                     java_json.append(f'System.out.print("\\"{var_name}\\": " + {var_name});')
-                else:
-                    java_json.append(f'System.out.print("\\"{var_name}\\": " + {var_name});')
-                
-                if i < len(var_names) - 1:
-                    java_json.append('System.out.print(", ");')
-            
-            java_json.append('System.out.print("}");')
-            return "\n" + "\n".join(java_json)
+                java_json.append('System.out.print("}");')
+                return "\n" + "\n".join(java_json)
+        
+        elif lang == 'c':
+            # C JSON output (simplified)
+            var_list = list(variables)
+            if var_list:
+                c_json = ['printf("{");']
+                for i, var_name in enumerate(var_list):
+                    if i > 0:
+                        c_json.append('printf(", ");')
+                    c_json.append(f'printf("\\"{var_name}\\": %d", {var_name});')
+                c_json.append('printf("}");')
+                return "\n" + "\n".join(c_json)
+        
+        return ""
+
+
+def parse_code_to_tree(code_str: str) -> list:
+    """Parse language blocks using SharedStateOrchestrator - Legacy compatibility function"""
+    orchestrator = SharedStateOrchestrator()
+    blocks = orchestrator.parse_mixed_structure(code_str)
     
-    return ""
+    # Convert to legacy format for compatibility
+    legacy_blocks = []
+    for block in blocks:
+        legacy_blocks.append({
+            'lang': block['lang'],
+            'code': block['code'],
+            'is_nested': block.get('is_nested', False)
+        })
+    
+    return legacy_blocks
+
+# Legacy compatibility functions
+def inject_variable_declarations(lang: str, variables: dict) -> str:
+    """Automatically inject variable declarations based on language - Legacy function"""
+    orchestrator = SharedStateOrchestrator()
+    return orchestrator.inject_variable_declarations(lang, variables)
+
+def inject_output_capture(lang: str, variables: dict, user_code: str = "") -> str:
+    """Automatically inject code to capture and output variables as JSON - Legacy function"""
+    orchestrator = SharedStateOrchestrator()
+    # Convert dict to set for new interface, ignoring user_code for simplified compatibility
+    var_set = set(variables.keys()) if isinstance(variables, dict) else variables
+    return orchestrator.inject_output_capture(lang, var_set)
 
 def execute_tree_generator(blocks: list, input_state: dict = None):
-    """Execute sequential language blocks with automatic variable injection"""
-    current_state = input_state or {}
+    """Execute sequential language blocks using SharedStateOrchestrator - Legacy compatibility function"""
+    
+    # Create orchestrator and set initial state
+    orchestrator = SharedStateOrchestrator()
+    if input_state:
+        orchestrator.global_state.update(input_state)
     
     if DEBUG_MODE:
         yield "=" * 50
-        yield "🔄 POLYGLOT EXECUTION PIPELINE STARTED"
+        yield "🔄 POLYGLOT EXECUTION PIPELINE STARTED (SharedStateOrchestrator)"
         yield "=" * 50
     
     debug_print(f"🔄 Starting pipeline with {len(blocks)} language blocks")
-    debug_print(f"📊 Initial state: {current_state}")
+    debug_print(f"📊 Initial state: {orchestrator.global_state}")
     
     for i, block in enumerate(blocks):
         lang = block['lang']
@@ -478,439 +507,87 @@ def execute_tree_generator(blocks: list, input_state: dict = None):
         
         debug_print(f"\n🏗️ === BLOCK {i+1}/{len(blocks)}: {lang.upper()} ===")
         
-        # Handle nested blocks FIRST - this replaces nested syntax with executed results
-        if block.get('is_nested', False):
-            debug_print(f"🔄 Processing nested block structure")
-            if DEBUG_MODE:
-                yield f"🔄 Detected nested structure with {len(block['nested_structure']['nested_blocks'])} inner blocks"
-            
-            # Execute nested structure - this returns the processed code with nested blocks replaced
-            user_code, nested_updated_state = execute_nested_block(block['nested_structure'], current_state)
-            current_state.update(nested_updated_state)
-            
-            debug_print(f"📄 Code after nested processing:\n{user_code}")
-            if DEBUG_MODE:
-                yield f"🔄 Nested execution completed, updated state: {list(current_state.keys())}"
-        else:
-            user_code = block['code']
-        
-        # Now extract variables from the PROCESSED code (with nested blocks replaced)
-        referenced_vars = extract_variable_references(user_code, lang)
-        debug_print(f"🔍 Variables referenced in {lang}: {referenced_vars}")
-        
-        # Filter current_state to only include referenced variables  
-        available_vars = {k: v for k, v in current_state.items() if k in referenced_vars}
-        
-        if available_vars:
-            debug_print(f"📥 Variables received from previous blocks: {available_vars}")
-            if DEBUG_MODE:
-                yield f"📥 Receiving variables: {list(available_vars.keys())}"
-        else:
-            debug_print(f"📥 No variables passed to {lang} block")
-            if DEBUG_MODE and i > 0:
-                yield f"📥 No variables received from previous blocks"
-        
-        if i == 0 and not available_vars:
-            debug_print(f"🏁 First block - starting fresh")
-            if DEBUG_MODE:
-                yield "🏁 Starting fresh (first block)"
-        
-        # Inject variable declarations at the beginning
-        injected_declarations = inject_variable_declarations(lang, available_vars)
-        if available_vars and injected_declarations:
-            debug_print(f"💉 Injected variable declarations for {lang}:")
-            for line in injected_declarations.split('\n'):
-                if line.strip():
-                    debug_print(f"   📝 {line.strip()}")
-        
-        # Inject output capture at the end (only if user code modifies variables)
-        modified_vars = extract_modified_variables(user_code, lang)
-        debug_print(f"✏️ Variables modified in {lang}: {modified_vars}")
-        
-        if DEBUG_MODE and modified_vars:
-            yield f"✏️ Variables being modified: {list(modified_vars)}"
-        
-        if DEBUG_MODE and lang == 'java':
-            yield f"DEBUG Java modified vars: {modified_vars}"
-        
-        # For C, if we detect variable declarations, we need to capture them
-        if lang == 'c' and modified_vars:
-            # Create a dummy state for variables we're declaring in this block
-            new_vars_state = {}
-            for var in modified_vars:
-                # Try to extract array values from the code
-                array_match = re.search(rf'{var}\s*\[\s*\]\s*=\s*\{{\s*([^}}]+)\s*\}}', user_code)
-                if array_match:
-                    values_str = array_match.group(1)
-                    # Determine if it's int, float, or char array
-                    if re.search(rf'int\s+{var}', user_code):
-                        values = [int(x.strip()) for x in values_str.split(',')]
-                    elif re.search(rf'float\s+{var}', user_code):
-                        values = [float(x.strip()) for x in values_str.split(',')]
-                    elif re.search(rf'char\s+{var}', user_code):
-                        values = [x.strip().strip("'") for x in values_str.split(',')]
-                    else:
-                        values = [int(x.strip()) for x in values_str.split(',')]
-                    new_vars_state[var] = values
-                
-                # Try to extract string literals (with explicit size)
-                elif re.search(rf'char\s+{var}\s*\[\s*\d+\s*\]\s*=\s*"([^"]*)"', user_code):
-                    string_match = re.search(rf'char\s+{var}\s*\[\s*\d+\s*\]\s*=\s*"([^"]*)"', user_code)
-                    new_vars_state[var] = string_match.group(1)
-                
-                # Try to extract string literals (without explicit size)
-                elif re.search(rf'char\s+{var}\s*\[\s*\]\s*=\s*"([^"]*)"', user_code):
-                    string_match = re.search(rf'char\s+{var}\s*\[\s*\]\s*=\s*"([^"]*)"', user_code)
-                    new_vars_state[var] = string_match.group(1)
-                
-                # Try to extract scalar values
-                elif re.search(rf'(int|float|double|char)\s+{var}\s*=\s*([^;]+)', user_code):
-                    scalar_match = re.search(rf'(int|float|double|char)\s+{var}\s*=\s*([^;]+)', user_code)
-                    var_type = scalar_match.group(1)
-                    value_str = scalar_match.group(2).strip()
-                    
-                    if var_type == 'int':
-                        new_vars_state[var] = int(value_str)
-                    elif var_type in ['float', 'double']:
-                        new_vars_state[var] = float(value_str.rstrip('f'))
-                    elif var_type == 'char':
-                        new_vars_state[var] = value_str.strip("'")
-                else:
-                    # Default for other variables
-                    new_vars_state[var] = 0
-            
-            output_capture = inject_output_capture(lang, new_vars_state, user_code)
-        else:
-            output_capture = inject_output_capture(lang, {k: current_state.get(k, 0) for k in modified_vars}, user_code)
-        
-        # Combine the code
-        full_code = injected_declarations + user_code + output_capture
-        
-        debug_print(f"🚀 Executing {lang} block...")
+        # Convert legacy block format to new format
+        new_block = {
+            'type': 'sequential',
+            'lang': lang,
+            'code': block['code'],
+            'is_nested': block.get('is_nested', False)
+        }
         
         try:
-            # Execute the code
-            if DEBUG_MODE and lang == 'java':
-                yield f"DEBUG Java code:\n{full_code}\n---"
+            # Execute block using orchestrator
+            old_state = orchestrator.global_state.copy()
+            orchestrator.execute_standalone_block(new_block)
             
-            old_state_keys = set(current_state.keys())
-            output = execute_in_docker(lang, full_code, "{}")
+            # Show what changed
+            new_vars = {k: v for k, v in orchestrator.global_state.items() 
+                       if k not in old_state and not k.startswith('__')}
+            modified_vars = {k: v for k, v in orchestrator.global_state.items() 
+                           if k in old_state and old_state[k] != v and not k.startswith('__')}
             
-            # Try to parse output as JSON
-            try:
-                new_state = json.loads(output.strip())
-                
-                # Track what variables were added/modified
-                added_vars = {k: v for k, v in new_state.items() if k not in old_state_keys}
-                modified_vars_actual = {k: v for k, v in new_state.items() if k in old_state_keys and current_state[k] != v}
-                
-                current_state.update(new_state)
-                
-                if added_vars:
-                    debug_print(f"➕ New variables created in {lang}: {added_vars}")
-                    if DEBUG_MODE:
-                        yield f"➕ Created: {list(added_vars.keys())} = {list(added_vars.values())}"
-                        
-                if modified_vars_actual:
-                    debug_print(f"🔄 Variables modified in {lang}: {modified_vars_actual}")
-                    if DEBUG_MODE:
-                        yield f"🔄 Modified: {list(modified_vars_actual.keys())} = {list(modified_vars_actual.values())}"
-                
+            if DEBUG_MODE:
+                if new_vars:
+                    yield f"➕ Created: {list(new_vars.keys())} = {list(new_vars.values())}"
+                if modified_vars:
+                    yield f"🔄 Modified: {list(modified_vars.keys())} = {list(modified_vars.values())}"
+                    
                 # Show what will be passed to next block
-                next_block_index = i + 1
-                if next_block_index < len(blocks):
-                    next_lang = blocks[next_block_index]['lang']
-                    next_referenced = extract_variable_references(blocks[next_block_index]['code'], next_lang)
-                    vars_to_pass = {k: v for k, v in current_state.items() if k in next_referenced}
+                if i + 1 < len(blocks):
+                    next_lang = blocks[i + 1]['lang']
+                    next_code = blocks[i + 1]['code']
+                    next_referenced = orchestrator.extract_variable_references(next_code, next_lang)
+                    vars_to_pass = {k: v for k, v in orchestrator.global_state.items() 
+                                  if k in next_referenced and not k.startswith('__')}
                     if vars_to_pass:
-                        debug_print(f"📤 Variables ready for {next_lang}: {vars_to_pass}")
-                        if DEBUG_MODE:
-                            yield f"📤 Passing to {next_lang.upper()}: {list(vars_to_pass.keys())}"
+                        yield f"📤 Passing to {next_lang.upper()}: {list(vars_to_pass.keys())}"
                     else:
-                        debug_print(f"📤 No variables will be passed to {next_lang}")
-                        if DEBUG_MODE:
-                            yield f"📤 Nothing to pass to {next_lang.upper()}"
-                
-            except json.JSONDecodeError:
-                debug_print(f"📄 {lang} produced user output (no variable updates)")
-                # The output contains both program output and JSON variable state
-                # Split and only show the program output part
-                if "VARS_OUTPUT:" in output:
-                    # Split on VARS_OUTPUT and take only the first part (program output)
-                    program_output = output.split("VARS_OUTPUT:")[0].strip()
-                    if program_output:
-                        yield program_output
-                else:
-                    # No VARS_OUTPUT marker, check if it's pure JSON (variables only)
-                    output_lines = output.strip().split('\n')
-                    for line in output_lines:
-                        line = line.strip()
-                        # Skip lines that are pure JSON objects (variable states)
-                        if not (line.startswith('{') and line.endswith('}') and '"' in line):
-                            if line:  # Only yield non-empty lines
-                                yield line
-                
+                        yield f"📤 Nothing to pass to {next_lang.upper()}"
+                        
         except Exception as e:
             debug_print(f"❌ Error in {lang} block: {e}")
             yield f"Error in {lang}: {e}"
             break
     
-    debug_print(f"🏁 Pipeline completed! Final state: {current_state}")
+    debug_print(f"🏁 Pipeline completed! Final state: {orchestrator.global_state}")
     
     # Only show summary when debug mode is enabled
     if DEBUG_MODE:
         yield "\n" + "=" * 50
         yield "🏁 PIPELINE EXECUTION SUMMARY"
         yield "=" * 50
-        if current_state:
-            yield f"📊 Final variable state: {current_state}"
+        final_vars = {k: v for k, v in orchestrator.global_state.items() if not k.startswith('__')}
+        if final_vars:
+            yield f"📊 Final variable state: {final_vars}"
         else:
             yield "📊 No variables persisted across blocks"
         yield "✅ Pipeline completed successfully"
 
-def extract_variable_references(code: str, lang: str) -> set:
-    """Extract variable names that are referenced (read) in the code"""
-    references = set()
-    
-    if lang == 'c':
-        # Look for variable usage (simple heuristic)
-        for match in re.finditer(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\b', code):
-            var_name = match.group(1)
-            # Exclude C keywords and function names
-            if var_name not in ['int', 'char', 'float', 'double', 'printf', 'for', 'if', 'else', 'return', 'sizeof', 'i', 'j', 'k', 'main', 'void']:
-                references.add(var_name)
-    
-    elif lang == 'py':
-        # Look for variable usage
-        for match in re.finditer(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\b', code):
-            var_name = match.group(1)
-            # Exclude Python keywords and common functions
-            if var_name not in ['import', 'def', 'class', 'if', 'else', 'for', 'while', 'print', 'sort', 'json', 'sys', 'len', 'max', 'min', 'sum', 'str', 'int', 'float', 'list', 'dict', 'True', 'False', 'None']:
-                references.add(var_name)
-    
-    elif lang == 'java':
-        # Look for variable usage
-        for match in re.finditer(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\b', code):
-            var_name = match.group(1)
-            # Exclude Java keywords and common loop variables
-            if var_name not in ['int', 'float', 'double', 'boolean', 'String', 'System', 'out', 'println', 'print', 'class', 'public', 'static', 'void', 'length', 'i', 'j', 'k', 'if', 'else', 'for', 'while', 'true', 'false']:
-                references.add(var_name)
-    
-    return references
 
-def parse_control_structures(code: str, lang: str):
-    """Parse and extract all control structures like a compiler"""
-    structures = {
-        'loops': [],
-        'conditions': [],
-        'exceptions': [],
-        'blocks': [],
-        'local_vars': set(),
-        'scoped_vars': set()
-    }
+# Main execution function
+def execute_polyglot_code(code_str: str) -> None:
+    """Execute polyglot code with shared state management"""
+    orchestrator = SharedStateOrchestrator()
     
-    if lang == 'java':
-        # Find for loops with their complete structure
-        for match in re.finditer(r'for\s*\(\s*([^;]+);\s*([^;]+);\s*([^)]+)\)\s*\{([^}]*)\}', code, re.DOTALL):
-            init_part = match.group(1).strip()
-            condition = match.group(2).strip()
-            increment = match.group(3).strip()
-            body = match.group(4).strip()
-            
-            # Extract loop variable declarations
-            for var_match in re.finditer(r'(int|float|double|boolean|String)\s+([a-zA-Z_][a-zA-Z0-9_]*)', init_part):
-                structures['local_vars'].add(var_match.group(2))
-            
-            # Extract loop variable assignments
-            for var_match in re.finditer(r'([a-zA-Z_][a-zA-Z0-9_]*)\s*=', init_part):
-                structures['local_vars'].add(var_match.group(1))
-            
-            # Extract increment variables
-            for var_match in re.finditer(r'([a-zA-Z_][a-zA-Z0-9_]*)\s*(\+\+|--|\+=|-=)', increment):
-                structures['local_vars'].add(var_match.group(1))
-        
-        # Find for-each loops
-        for match in re.finditer(r'for\s*\(\s*(int|float|double|boolean|String)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\)\s*\{([^}]*)\}', code, re.DOTALL):
-            loop_var = match.group(2)
-            structures['local_vars'].add(loop_var)
-        
-        # Find while loops
-        for match in re.finditer(r'while\s*\([^)]+\)\s*\{([^}]*)\}', code, re.DOTALL):
-            body = match.group(1)
-            # Any variables declared inside while loop are local
-            for var_match in re.finditer(r'(int|float|double|boolean|String)\s+([a-zA-Z_][a-zA-Z0-9_]*)', body):
-                structures['local_vars'].add(var_match.group(2))
-        
-        # Find if-else blocks
-        for match in re.finditer(r'if\s*\([^)]+\)\s*\{([^}]*)\}(\s*else\s*\{([^}]*)\})?', code, re.DOTALL):
-            if_body = match.group(1)
-            else_body = match.group(3) if match.group(3) else ""
-            
-            # Variables declared inside if/else are local
-            for body in [if_body, else_body]:
-                if body:
-                    for var_match in re.finditer(r'(int|float|double|boolean|String)\s+([a-zA-Z_][a-zA-Z0-9_]*)', body):
-                        structures['local_vars'].add(var_match.group(2))
-        
-        # Find try-catch blocks
-        for match in re.finditer(r'try\s*\{([^}]*)\}\s*catch\s*\([^)]+\)\s*\{([^}]*)\}', code, re.DOTALL):
-            try_body = match.group(1)
-            catch_body = match.group(2)
-            
-            # Variables declared inside try/catch are local
-            for body in [try_body, catch_body]:
-                for var_match in re.finditer(r'(int|float|double|boolean|String)\s+([a-zA-Z_][a-zA-Z0-9_]*)', body):
-                    structures['local_vars'].add(var_match.group(2))
-        
-        # Find method parameters and local method declarations
-        for match in re.finditer(r'(public|private|protected)?\s*(static)?\s*(void|int|float|double|boolean|String)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^)]*\)', code):
-            # Method names shouldn't be considered as variables
-            structures['local_vars'].add(match.group(4))
+    debug_print("Starting polyglot execution with shared state")
     
-    elif lang == 'c':
-        # Find for loops
-        for match in re.finditer(r'for\s*\(\s*([^;]+);\s*([^;]+);\s*([^)]+)\)\s*\{([^}]*)\}', code, re.DOTALL):
-            init_part = match.group(1).strip()
-            
-            # Extract loop variable declarations
-            for var_match in re.finditer(r'(int|float|double|char)\s+([a-zA-Z_][a-zA-Z0-9_]*)', init_part):
-                structures['local_vars'].add(var_match.group(2))
-        
-        # Find while loops and their local variables
-        for match in re.finditer(r'while\s*\([^)]+\)\s*\{([^}]*)\}', code, re.DOTALL):
-            body = match.group(1)
-            for var_match in re.finditer(r'(int|float|double|char)\s+([a-zA-Z_][a-zA-Z0-9_]*)', body):
-                structures['local_vars'].add(var_match.group(2))
-        
-        # Find if blocks
-        for match in re.finditer(r'if\s*\([^)]+\)\s*\{([^}]*)\}', code, re.DOTALL):
-            body = match.group(1)
-            for var_match in re.finditer(r'(int|float|double|char)\s+([a-zA-Z_][a-zA-Z0-9_]*)', body):
-                structures['local_vars'].add(var_match.group(2))
+    # Parse the mixed structure
+    blocks = orchestrator.parse_mixed_structure(code_str)
     
-    elif lang == 'py':
-        # Find for loops
-        for match in re.finditer(r'for\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+in\s+([^:]+):', code):
-            loop_var = match.group(1)
-            structures['local_vars'].add(loop_var)
-        
-        # Find while loops with their indented blocks
-        for match in re.finditer(r'while\s+[^:]+:\s*\n((?:\s{4,}[^\n]*\n?)*)', code, re.MULTILINE):
-            body = match.group(1)
-            # Python variables in loops might be local depending on scope
-            for var_match in re.finditer(r'^\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=', body, re.MULTILINE):
-                structures['local_vars'].add(var_match.group(1))
-        
-        # Find try-except blocks
-        for match in re.finditer(r'try:\s*\n((?:\s{4,}[^\n]*\n?)*)\s*except[^:]*:\s*\n((?:\s{4,}[^\n]*\n?)*)', code, re.MULTILINE):
-            try_body = match.group(1)
-            except_body = match.group(2)
-            
-            for body in [try_body, except_body]:
-                for var_match in re.finditer(r'^\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=', body, re.MULTILINE):
-                    structures['local_vars'].add(var_match.group(1))
+    debug_print(f"Parsed {len(blocks)} execution blocks:")
+    for i, block in enumerate(blocks):
+        debug_print(f"  Block {i+1}: {block['type']} {block['lang']} {'(nested)' if block.get('is_nested') else ''}")
     
-    return structures
+    # Execute all blocks
+    orchestrator.execute_blocks(blocks)
+
+# Legacy compatibility functions for backward compatibility
+def extract_variable_references(code: str, lang: str) -> set:
+    """Extract variable names that are referenced (read) in the code - Legacy function"""
+    orchestrator = SharedStateOrchestrator()
+    return orchestrator.extract_variable_references(code, lang)
 
 def extract_modified_variables(code: str, lang: str) -> set:
-    """Extract variable names that are modified (written) in the code with scope awareness"""
-    modified = set()
-    
-    # Parse control structures to identify local/scoped variables
-    structures = parse_control_structures(code, lang)
-    local_vars = structures['local_vars']
-    
-    debug_print(f"DEBUG Local/scoped vars detected: {local_vars}")
-    
-    if lang == 'c':
-        # Look for array declarations - all types with [] syntax
-        for match in re.finditer(r'(int|float|double|char)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\[\s*\]\s*=\s*\{', code):
-            var_name = match.group(2)
-            if var_name not in local_vars:
-                modified.add(var_name)
-                
-        for match in re.finditer(r'(int|float|double|char)\[\s*\]\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*\{', code):
-            var_name = match.group(2)
-            if var_name not in local_vars:
-                modified.add(var_name)
-        
-        # Look for string declarations (char arrays with strings)
-        for match in re.finditer(r'char\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\[\s*\d*\s*\]\s*=\s*"', code):
-            var_name = match.group(1)
-            if var_name not in local_vars:
-                modified.add(var_name)
-                
-        for match in re.finditer(r'char\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\[\s*\]\s*=\s*"', code):
-            var_name = match.group(1)
-            if var_name not in local_vars:
-                modified.add(var_name)
-        
-        # Look for regular variable declarations - all primitive types
-        for match in re.finditer(r'(int|float|double|char)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*[^{"]', code):
-            var_name = match.group(2)
-            if var_name not in local_vars:
-                modified.add(var_name)
-        
-        # Look for assignments to existing variables (name = value)
-        for match in re.finditer(r'([a-zA-Z_][a-zA-Z0-9_]*)\s*=(?!=)', code):
-            var_name = match.group(1)
-            # Get the full line to check context
-            line_start = code.rfind('\n', 0, match.start()) + 1
-            line_end = code.find('\n', match.end())
-            if line_end == -1:
-                line_end = len(code)
-            line = code[line_start:line_end].strip()
-            
-            # Exclude if it's part of a type declaration, local variable, or within printf/string
-            if (not re.search(r'\b(int|char|float|double)\s+' + re.escape(var_name), code) and 
-                var_name not in local_vars and
-                not re.search(r'printf\s*\(.*' + re.escape(var_name) + r'.*\)', line) and
-                not re.search(r'".*' + re.escape(var_name) + r'.*"', line)):
-                modified.add(var_name)
-    
-    elif lang == 'py':
-        # Look for assignments or method calls that modify
-        for match in re.finditer(r'([a-zA-Z_][a-zA-Z0-9_]*)\s*=', code):
-            var_name = match.group(1)
-            # Exclude module imports and local variables
-            if (not re.search(r'import\s+.*' + re.escape(var_name), code) and 
-                var_name not in local_vars):
-                modified.add(var_name)
-                
-        # Look for in-place modifications like .sort()
-        for match in re.finditer(r'([a-zA-Z_][a-zA-Z0-9_]*)\s*\.\s*(sort|reverse|append|extend|remove|pop|clear|update)\s*\(', code):
-            var_name = match.group(1)
-            if var_name not in local_vars:
-                modified.add(var_name)
-                
-        # Look for dictionary/list modifications
-        for match in re.finditer(r'([a-zA-Z_][a-zA-Z0-9_]*)\s*\[\s*[^\]]+\s*\]\s*=', code):
-            var_name = match.group(1)
-            if var_name not in local_vars:
-                modified.add(var_name)
-    
-    elif lang == 'java':
-        # Look for variable declarations - all types
-        for match in re.finditer(r'(int|float|double|boolean|String)\[\]\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=', code):
-            var_name = match.group(2)
-            if var_name not in local_vars:
-                modified.add(var_name)
-                
-        for match in re.finditer(r'(int|float|double|boolean|String)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=', code):
-            var_name = match.group(2)
-            if var_name not in local_vars:
-                modified.add(var_name)
-                
-        # Look for assignments to existing variables
-        for match in re.finditer(r'([a-zA-Z_][a-zA-Z0-9_]*)\s*=(?!=)', code):
-            var_name = match.group(1)
-            
-            # Comprehensive scope checking - exclude local variables
-            if var_name not in local_vars:
-                # Additional checks for edge cases
-                is_declaration = re.search(r'\b(int|float|double|boolean|String)\s+' + re.escape(var_name), code)
-                if not is_declaration:
-                    modified.add(var_name)
-    
-    debug_print(f"DEBUG Final modified vars: {modified}")
-    return modified
+    """Extract variable names that are modified (written) in the code - Legacy function"""
+    orchestrator = SharedStateOrchestrator()
+    return orchestrator.extract_modified_variables(code, lang)
