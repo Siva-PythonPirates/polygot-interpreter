@@ -52,11 +52,24 @@ class SharedStateOrchestrator:
     
     def parse_outer_content(self, outer_lang: str, content: str) -> List[Dict]:
         """Parse content that may contain sequential and nested blocks"""
+        
+        # First, check if this content contains nested blocks (inline ::lang syntax)
+        nested_pattern = r'::(\w+)\s+(.*?)\s+::/\1'
+        if re.search(nested_pattern, content, re.DOTALL):
+            debug_print(f"Found nested blocks in {outer_lang} content")
+            # This is a nested structure - process it as one block
+            processed_content, nested_found = self.process_nested_blocks(content, outer_lang)
+            return [{
+                'type': 'outer',
+                'lang': outer_lang,
+                'code': processed_content,
+                'is_nested': nested_found,
+                'original_code': content
+            }]
+        
+        # No nested blocks found - check for standalone blocks
         blocks = []
         current_pos = 0
-        
-        # Split content by language block boundaries
-        # Look for standalone language blocks first
         standalone_pattern = r'::(\w+)\s*(.*?)\s*::/\1'
         
         while current_pos < len(content):
@@ -93,23 +106,20 @@ class SharedStateOrchestrator:
                 # No more standalone blocks - add remaining content as outer block
                 remaining_content = content[current_pos:].strip()
                 if remaining_content:
-                    # Check for nested blocks in remaining content
-                    processed_content, nested_found = self.process_nested_blocks(remaining_content, outer_lang)
                     blocks.append({
                         'type': 'outer',
                         'lang': outer_lang,
-                        'code': processed_content,
-                        'is_nested': nested_found,
-                        'original_code': remaining_content if nested_found else None
+                        'code': remaining_content,
+                        'is_nested': False
                     })
                 break
         
         return blocks
     
     def process_nested_blocks(self, content: str, outer_lang: str) -> Tuple[str, bool]:
-        """Process nested blocks within outer language content"""
+        """Process nested blocks within outer language content with cross-language conversion"""
         
-        nested_pattern = r'::(\w+)\s*(.*?)\s*::/\1'
+        nested_pattern = r'::(\w+)\s+(.*?)\s+::/\1'
         nested_blocks = list(re.finditer(nested_pattern, content, re.DOTALL))
         
         if not nested_blocks:
@@ -117,23 +127,104 @@ class SharedStateOrchestrator:
         
         debug_print(f"Found {len(nested_blocks)} nested blocks in {outer_lang}")
         
-        # Store nested block information for later execution
+        # Process nested blocks in reverse order to maintain string positions
         processed_content = content
-        for i, match in enumerate(reversed(nested_blocks)):  # Reverse to maintain positions
-            placeholder = f"/* NESTED_BLOCK_{outer_lang}_{i} */"
+        for i, match in enumerate(reversed(nested_blocks)):
+            nested_lang = match.group(1)
+            nested_code = match.group(2).strip()
             
-            # Store block info in global state for execution
-            block_key = f"nested_{outer_lang}_{i}"
-            self.global_state[f"__{block_key}__"] = {
-                'lang': match.group(1),
-                'code': match.group(2).strip(),
-                'placeholder': placeholder
-            }
+            debug_print(f"🔄 Processing nested {nested_lang} block: {nested_code}")
             
-            # Replace with placeholder
-            processed_content = processed_content[:match.start()] + placeholder + processed_content[match.end():]
+            # Convert nested code to outer language syntax
+            converted_code = self.convert_nested_to_outer(nested_code, nested_lang, outer_lang)
+            
+            # Replace the nested block with converted code
+            start_pos = match.start()
+            end_pos = match.end()
+            processed_content = processed_content[:start_pos] + converted_code + processed_content[end_pos:]
         
         return processed_content, True
+    
+    def convert_nested_to_outer(self, nested_code: str, nested_lang: str, outer_lang: str) -> str:
+        """Convert nested language code to outer language syntax"""
+        
+        if outer_lang == 'c':
+            if nested_lang == 'py':
+                # Convert Python to C
+                if 'print(' in nested_code:
+                    # Handle Python print statements
+                    print_match = re.search(r'print\s*\(\s*([^)]+)\s*\)', nested_code)
+                    if print_match:
+                        print_args = print_match.group(1)
+                        
+                        # Handle multiple arguments separated by commas
+                        if ',' in print_args:
+                            args = [arg.strip() for arg in print_args.split(',')]
+                            printf_parts = []
+                            for arg in args:
+                                if arg.startswith('"') and arg.endswith('"'):
+                                    # String literal
+                                    printf_parts.append(f'printf({arg}); printf(" ");')
+                                else:
+                                    # Variable - assume integer for now
+                                    printf_parts.append(f'printf("%d ", {arg});')
+                            return ' '.join(printf_parts) + 'printf("\\n");'
+                        else:
+                            # Single argument
+                            if print_args.startswith('"') and print_args.endswith('"'):
+                                return f'printf({print_args}); printf("\\n");'
+                            else:
+                                return f'printf("%d\\n", {print_args});'
+                
+                # Handle other Python operations
+                if '.append(' in nested_code:
+                    # For now, just add a comment - we'd need more complex handling for lists
+                    return f'/* Python list operation: {nested_code} */'
+                
+                return f'/* Python code: {nested_code} */'
+                
+            elif nested_lang == 'java':
+                # Convert Java to C
+                if 'System.out.println(' in nested_code or 'System.out.print(' in nested_code:
+                    java_match = re.search(r'System\.out\.print(?:ln)?\s*\(\s*([^)]+)\s*\)', nested_code)
+                    if java_match:
+                        print_arg = java_match.group(1).strip()
+                        
+                        # Handle Java string concatenation
+                        if '+' in print_arg:
+                            # Simple handling of "string " + variable
+                            parts = [part.strip() for part in print_arg.split('+')]
+                            printf_format = ""
+                            printf_args = []
+                            
+                            for part in parts:
+                                if part.startswith('"') and part.endswith('"'):
+                                    printf_format += part[1:-1]  # Remove quotes
+                                else:
+                                    printf_format += "%d"
+                                    printf_args.append(part)
+                            
+                            if printf_args:
+                                result = f'printf("{printf_format}", {", ".join(printf_args)});'
+                            else:
+                                result = f'printf("{printf_format}");'
+                        else:
+                            # Simple argument
+                            if print_arg.startswith('"') and print_arg.endswith('"'):
+                                result = f'printf({print_arg});'
+                            else:
+                                result = f'printf("%d", {print_arg});'
+                        
+                        # Add newline for println
+                        if 'println' in nested_code:
+                            result += ' printf("\\n");'
+                        
+                        return result
+                
+                return f'/* Java code: {nested_code} */'
+        
+        # Default: return as comment if no conversion available
+        return f'/* {nested_lang} code: {nested_code} */'
     
     def parse_sequential_blocks(self, code_str: str) -> List[Dict]:
         """Parse sequential language blocks"""
@@ -191,7 +282,7 @@ class SharedStateOrchestrator:
         modified_vars = self.extract_modified_variables(code, lang)
         
         # Add output capture for modified variables
-        output_capture = self.inject_output_capture(lang, modified_vars)
+        output_capture = self.inject_output_capture(lang, modified_vars, code)
         
         # Combine code
         full_code = injected_code + code + output_capture
@@ -262,7 +353,7 @@ class SharedStateOrchestrator:
                     
                     injected_code = self.inject_variable_declarations(nested_lang, available_vars)
                     modified_vars = self.extract_modified_variables(nested_code, nested_lang)
-                    output_capture = self.inject_output_capture(nested_lang, modified_vars)
+                    output_capture = self.inject_output_capture(nested_lang, modified_vars, nested_code)
                     
                     full_nested_code = injected_code + nested_code + output_capture
                     
@@ -336,9 +427,9 @@ class SharedStateOrchestrator:
         if lang == 'c':
             # C variable declarations and assignments
             for pattern in [
-                r'(int|float|double|char)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\[\s*\]\s*=',
-                r'(int|float|double|char)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=',
-                r'([a-zA-Z_][a-zA-Z0-9_]*)\s*='
+                r'(int|float|double|char)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\[\s*\]\s*=\s*\{',  # Arrays
+                r'(int|float|double|char)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=',  # Regular variables
+                r'([a-zA-Z_][a-zA-Z0-9_]*)\s*='  # Assignments
             ]:
                 for match in re.finditer(pattern, code):
                     if len(match.groups()) == 2:
@@ -414,7 +505,7 @@ class SharedStateOrchestrator:
         
         return "\n".join(declarations) + "\n" if declarations else ""
     
-    def inject_output_capture(self, lang: str, variables: set) -> str:
+    def inject_output_capture(self, lang: str, variables: set, code: str = "") -> str:
         """Inject code to capture variable states as JSON"""
         if not variables:
             return ""
@@ -440,14 +531,28 @@ print(json.dumps(result_dict))"""
                 return "\n" + "\n".join(java_json)
         
         elif lang == 'c':
-            # C JSON output (simplified)
+            # Enhanced C JSON output with array handling
             var_list = list(variables)
             if var_list:
                 c_json = ['printf("{");']
                 for i, var_name in enumerate(var_list):
                     if i > 0:
                         c_json.append('printf(", ");')
-                    c_json.append(f'printf("\\"{var_name}\\": %d", {var_name});')
+                    
+                    # Check if it's an array declaration in the code
+                    if re.search(rf'int\s+{var_name}\s*\[\s*\]\s*=\s*\{{', code):
+                        # It's an array - output as JSON array
+                        c_json.append(f'printf("\\"{var_name}\\": [");')
+                        c_json.append(f'int {var_name}_size = sizeof({var_name}) / sizeof({var_name}[0]);')
+                        c_json.append(f'for(int __i = 0; __i < {var_name}_size; __i++) {{')
+                        c_json.append(f'    printf("%d", {var_name}[__i]);')
+                        c_json.append(f'    if(__i < {var_name}_size - 1) printf(", ");')
+                        c_json.append(f'}}')
+                        c_json.append(f'printf("]");')
+                    else:
+                        # Regular variable
+                        c_json.append(f'printf("\\"{var_name}\\": %d", {var_name});')
+                
                 c_json.append('printf("}");')
                 return "\n" + "\n".join(c_json)
         
@@ -479,9 +584,9 @@ def inject_variable_declarations(lang: str, variables: dict) -> str:
 def inject_output_capture(lang: str, variables: dict, user_code: str = "") -> str:
     """Automatically inject code to capture and output variables as JSON - Legacy function"""
     orchestrator = SharedStateOrchestrator()
-    # Convert dict to set for new interface, ignoring user_code for simplified compatibility
+    # Convert dict to set for new interface
     var_set = set(variables.keys()) if isinstance(variables, dict) else variables
-    return orchestrator.inject_output_capture(lang, var_set)
+    return orchestrator.inject_output_capture(lang, var_set, user_code)
 
 def execute_tree_generator(blocks: list, input_state: dict = None):
     """Execute sequential language blocks using SharedStateOrchestrator - Legacy compatibility function"""
