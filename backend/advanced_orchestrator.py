@@ -21,15 +21,138 @@ def get_debug_mode() -> bool:
     """Get current debug mode status"""
     return DEBUG_MODE
 
+def parse_nested_structure(code_str: str) -> dict:
+    """Parse nested language blocks and return structured representation"""
+    
+    # Find the outermost language block
+    outer_match = re.search(r'::(\w+)(.*?)::/\1', code_str, re.DOTALL)
+    if not outer_match:
+        return None
+    
+    outer_lang = outer_match.group(1)
+    outer_content = outer_match.group(2)
+    
+    # Look for nested blocks within the outer content
+    nested_blocks = []
+    nested_pattern = re.compile(r'::(\w+)(.*?)::/\1', re.DOTALL)
+    
+    for nested_match in nested_pattern.finditer(outer_content):
+        nested_lang = nested_match.group(1)
+        nested_code = nested_match.group(2).strip()
+        
+        nested_blocks.append({
+            'lang': nested_lang,
+            'code': nested_code,
+            'start_pos': nested_match.start(),
+            'end_pos': nested_match.end()
+        })
+    
+    return {
+        'outer_lang': outer_lang,
+        'outer_content': outer_content,
+        'nested_blocks': nested_blocks,
+        'has_nested': len(nested_blocks) > 0
+    }
+
+def execute_nested_block(structure: dict, current_state: dict):
+    """Execute nested language structure by expanding inner blocks"""
+    
+    if not structure['has_nested']:
+        # No nesting, execute as regular block
+        return structure['outer_content']
+    
+    outer_content = structure['outer_content']
+    updated_state = current_state.copy()
+    
+    # Process nested blocks in reverse order to maintain positions
+    for nested_block in reversed(structure['nested_blocks']):
+        nested_lang = nested_block['lang']
+        nested_code = nested_block['code']
+        start_pos = nested_block['start_pos']
+        end_pos = nested_block['end_pos']
+        
+        debug_print(f"🔄 Executing nested {nested_lang} block")
+        
+        try:
+            # Get referenced variables for this nested block
+            referenced_vars = extract_variable_references(nested_code, nested_lang)
+            available_vars = {k: v for k, v in updated_state.items() if k in referenced_vars}
+            
+            # Prepare nested block execution
+            injected_declarations = inject_variable_declarations(nested_lang, available_vars)
+            
+            # Check what variables this nested block modifies
+            modified_vars = extract_modified_variables(nested_code, nested_lang)
+            output_capture = inject_output_capture(nested_lang, {k: updated_state.get(k, 0) for k in modified_vars}, nested_code)
+            
+            full_nested_code = injected_declarations + nested_code + output_capture
+            
+            debug_print(f"🔍 Nested {nested_lang} code:\n{full_nested_code}")
+            
+            # Execute nested block
+            output = execute_in_docker(nested_lang, full_nested_code, "{}")
+            
+            # Try to parse output for variable updates
+            actual_output = ""
+            try:
+                new_vars = json.loads(output.strip())
+                updated_state.update(new_vars)
+                debug_print(f"📊 Nested block updated variables: {new_vars}")
+            except json.JSONDecodeError:
+                # It's actual program output
+                actual_output = output.strip()
+                debug_print(f"📄 Nested block produced output: {actual_output}")
+            
+            # Replace the nested block with its output in outer content
+            before = outer_content[:start_pos]
+            after = outer_content[end_pos:]
+            
+            # Use actual output if any, otherwise empty
+            outer_content = before + actual_output + after
+            
+            # Update positions for remaining blocks
+            pos_diff = len(actual_output) - (end_pos - start_pos)
+            for other_block in structure['nested_blocks']:
+                if other_block['start_pos'] < start_pos:
+                    other_block['start_pos'] += pos_diff
+                    other_block['end_pos'] += pos_diff
+                    
+        except Exception as e:
+            debug_print(f"❌ Error executing nested {nested_lang}: {e}")
+            error_msg = f"/* Error: {e} */"
+            before = outer_content[:start_pos]
+            after = outer_content[end_pos:]
+            outer_content = before + error_msg + after
+    
+    return outer_content, updated_state
+
 def parse_code_to_tree(code_str: str) -> list:
-    """Parse sequential language blocks with ::lang ... ::/lang syntax"""
+    """Parse language blocks with support for nesting"""
+    
+    # First check for nested structure
+    nested_structure = parse_nested_structure(code_str)
+    
+    if nested_structure and nested_structure['has_nested']:
+        debug_print(f"🔍 Detected nested structure: {nested_structure['outer_lang']} with nested blocks")
+        return [{
+            'lang': nested_structure['outer_lang'],
+            'code': nested_structure['outer_content'],
+            'nested_structure': nested_structure,
+            'is_nested': True
+        }]
+    
+    # Fallback to sequential parsing
     blocks = []
     pattern = re.compile(r'::(\w+)\s*(.*?)\s*::/\1', re.DOTALL)
     
     for match in pattern.finditer(code_str):
         lang = match.group(1).strip()
         code = textwrap.dedent(match.group(2)).strip()
-        blocks.append({'lang': lang, 'code': code})
+        blocks.append({
+            'lang': lang, 
+            'code': code,
+            'is_nested': False
+        })
         
     return blocks
 
@@ -248,12 +371,24 @@ def execute_tree_generator(blocks: list, input_state: dict = None):
     
     for i, block in enumerate(blocks):
         lang = block['lang']
-        user_code = block['code']
         
         if DEBUG_MODE:
             yield f"\n🏗️ === BLOCK {i+1}/{len(blocks)}: {lang.upper()} ==="
         
         debug_print(f"\n🏗️ === BLOCK {i+1}/{len(blocks)}: {lang.upper()} ===")
+        
+        # Handle nested blocks
+        if block.get('is_nested', False):
+            debug_print(f"🔄 Processing nested block structure")
+            if DEBUG_MODE:
+                yield f"🔄 Detected nested structure with {len(block['nested_structure']['nested_blocks'])} inner blocks"
+            
+            # Execute nested structure
+            user_code, current_state = execute_nested_block(block['nested_structure'], current_state)
+            if DEBUG_MODE:
+                yield f"🔄 Nested execution completed, updated state: {list(current_state.keys())}"
+        else:
+            user_code = block['code']
         
         # Extract variable names that the user code references
         referenced_vars = extract_variable_references(user_code, lang)
