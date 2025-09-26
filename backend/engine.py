@@ -34,8 +34,10 @@ def execute_in_docker(lang: str, code: str, state_json: str) -> str:
         with open(os.path.join(temp_dir, filename), 'w') as f:
             f.write(final_code)
         
-        # Assumes Dockerfiles are in the same directory as this script
-        shutil.copyfile(dockerfile_name, os.path.join(temp_dir, dockerfile_name))
+        # Get the directory where this script is located
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        dockerfile_path = os.path.join(script_dir, dockerfile_name)
+        shutil.copyfile(dockerfile_path, os.path.join(temp_dir, dockerfile_name))
 
         try:
             build_command = ["docker", "build", "-t", image_tag, "-f", dockerfile_name, "."]
