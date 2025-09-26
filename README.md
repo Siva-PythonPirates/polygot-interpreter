@@ -4,6 +4,19 @@
 
 This isn't just another code runner — it's a paradigm shift. What started as a proof-of-concept evolved into an intelligent orchestrator that breaks down language barriers, enabling developers to leverage the best features of each language in a unified workflow.
 
+## 🏗️ **Architecture 2.0: SharedStateOrchestrator**
+
+**Major architectural breakthrough**: We've completely rewritten the execution engine with a clean, maintainable OOP design that makes the system incredibly robust and extensible.
+
+### **What's New:**
+- **🎯 Centralized State Management**: Single global state dictionary for all cross-language variables
+- **🔄 Placeholder-Based Processing**: Elegant nested block handling without complex position tracking
+- **📦 Modular Design**: Clear separation of concerns across specialized methods
+- **🛡️ Type Safety**: Full TypeScript-style type hints throughout the codebase
+- **🔧 Enhanced Maintainability**: Easy to understand, modify, and extend
+
+The new `SharedStateOrchestrator` class replaces the previous 900+ line monolithic approach with clean, testable methods while preserving 100% backward compatibility.
+
 🌐 **[Live Demo](https://polygot-interpreter-zcom.vercel.app/)** | 📚 **[GitHub Repo](https://github.com/Siva-PythonPirates/polygot-interpreter)**
 
 ---
@@ -232,6 +245,29 @@ npm run dev
 * **Real-time WebSocket pipeline** with proper error handling
 * **Docker containerization** for secure, isolated execution
 * **Professional logging system** with emoji-enhanced debug output
+
+### 🏗️ **SharedStateOrchestrator Architecture**
+
+The heart of the system is the new `SharedStateOrchestrator` class that provides:
+
+```python
+class SharedStateOrchestrator:
+    def __init__(self):
+        self.global_state = {}  # Centralized variable storage
+        self.language_contexts = {}  # Language-specific contexts
+    
+    def parse_mixed_structure(code_str) -> List[Dict]  # Smart parsing
+    def execute_blocks(blocks) -> None                  # Unified execution
+    def extract_variable_references(code, lang) -> set  # Variable analysis
+    def inject_variable_declarations(lang, vars) -> str # Code generation
+```
+
+**Key Benefits:**
+- **🎯 Single Source of Truth**: All variables managed in `global_state`
+- **🔄 Smart Parsing**: Handles sequential, nested, and mixed structures
+- **🛡️ Type Safety**: Full typing support for better development experience
+- **📦 Modular Methods**: Each concern handled by specialized methods
+- **🔧 Easy Extension**: Adding new languages is straightforward
 
 ---
 
