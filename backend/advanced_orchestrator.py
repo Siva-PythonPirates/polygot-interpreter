@@ -797,9 +797,18 @@ def extract_modified_variables(code: str, lang: str) -> set:
         # Look for assignments to existing variables (name = value)
         for match in re.finditer(r'([a-zA-Z_][a-zA-Z0-9_]*)\s*=(?!=)', code):
             var_name = match.group(1)
-            # Exclude if it's part of a type declaration or local variable
+            # Get the full line to check context
+            line_start = code.rfind('\n', 0, match.start()) + 1
+            line_end = code.find('\n', match.end())
+            if line_end == -1:
+                line_end = len(code)
+            line = code[line_start:line_end].strip()
+            
+            # Exclude if it's part of a type declaration, local variable, or within printf/string
             if (not re.search(r'\b(int|char|float|double)\s+' + re.escape(var_name), code) and 
-                var_name not in local_vars):
+                var_name not in local_vars and
+                not re.search(r'printf\s*\(.*' + re.escape(var_name) + r'.*\)', line) and
+                not re.search(r'".*' + re.escape(var_name) + r'.*"', line)):
                 modified.add(var_name)
     
     elif lang == 'py':
