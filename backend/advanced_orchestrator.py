@@ -59,6 +59,7 @@ class SharedStateOrchestrator:
             debug_print(f"Found nested blocks in {outer_lang} content")
             # This is a nested structure - process it as one block
             processed_content, nested_found = self.process_nested_blocks(content, outer_lang)
+            debug_print(f"Processed content result:\n{processed_content}")
             return [{
                 'type': 'outer',
                 'lang': outer_lang,
@@ -129,7 +130,7 @@ class SharedStateOrchestrator:
         
         # Process nested blocks in reverse order to maintain string positions
         processed_content = content
-        for i, match in enumerate(reversed(nested_blocks)):
+        for match in reversed(nested_blocks):
             nested_lang = match.group(1)
             nested_code = match.group(2).strip()
             
@@ -137,6 +138,8 @@ class SharedStateOrchestrator:
             
             # Convert nested code to outer language syntax
             converted_code = self.convert_nested_to_outer(nested_code, nested_lang, outer_lang)
+            
+            debug_print(f"🔄 Converted to {outer_lang}: {converted_code}")
             
             # Replace the nested block with converted code
             start_pos = match.start()
@@ -150,38 +153,45 @@ class SharedStateOrchestrator:
         
         if outer_lang == 'c':
             if nested_lang == 'py':
-                # Convert Python to C
-                if 'print(' in nested_code:
+                # Handle Python code - can have multiple statements separated by semicolons
+                statements = [stmt.strip() for stmt in nested_code.split(';') if stmt.strip()]
+                c_statements = []
+                
+                for stmt in statements:
                     # Handle Python print statements
-                    print_match = re.search(r'print\s*\(\s*([^)]+)\s*\)', nested_code)
-                    if print_match:
-                        print_args = print_match.group(1)
-                        
-                        # Handle multiple arguments separated by commas
-                        if ',' in print_args:
-                            args = [arg.strip() for arg in print_args.split(',')]
-                            printf_parts = []
-                            for arg in args:
-                                if arg.startswith('"') and arg.endswith('"'):
-                                    # String literal
-                                    printf_parts.append(f'printf({arg}); printf(" ");')
-                                else:
-                                    # Variable - assume integer for now
-                                    printf_parts.append(f'printf("%d ", {arg});')
-                            return ' '.join(printf_parts) + 'printf("\\n");'
-                        else:
-                            # Single argument
-                            if print_args.startswith('"') and print_args.endswith('"'):
-                                return f'printf({print_args}); printf("\\n");'
+                    if 'print(' in stmt:
+                        print_match = re.search(r'print\s*\(\s*([^)]+)\s*\)', stmt)
+                        if print_match:
+                            print_args = print_match.group(1)
+                            
+                            # Handle multiple arguments separated by commas
+                            if ',' in print_args:
+                                args = [arg.strip() for arg in print_args.split(',')]
+                                printf_parts = []
+                                for arg in args:
+                                    if arg.startswith('"') and arg.endswith('"'):
+                                        # String literal
+                                        printf_parts.append(f'printf({arg}); printf(" ");')
+                                    else:
+                                        # Variable - assume integer for now
+                                        printf_parts.append(f'printf("%d ", {arg});')
+                                c_statements.append(' '.join(printf_parts) + 'printf("\\n");')
                             else:
-                                return f'printf("%d\\n", {print_args});'
+                                # Single argument
+                                if print_args.startswith('"') and print_args.endswith('"'):
+                                    c_statements.append(f'printf({print_args}); printf("\\n");')
+                                else:
+                                    c_statements.append(f'printf("%d\\n", {print_args});')
+                    
+                    # Handle Python list operations (commented out for C)
+                    elif '.append(' in stmt:
+                        c_statements.append(f'/* Python list operation: {stmt} */')
+                    
+                    # Handle other statements
+                    else:
+                        c_statements.append(f'/* Python: {stmt} */')
                 
-                # Handle other Python operations
-                if '.append(' in nested_code:
-                    # For now, just add a comment - we'd need more complex handling for lists
-                    return f'/* Python list operation: {nested_code} */'
-                
-                return f'/* Python code: {nested_code} */'
+                return ' '.join(c_statements)
                 
             elif nested_lang == 'java':
                 # Convert Java to C
@@ -250,13 +260,16 @@ class SharedStateOrchestrator:
         
         for i, block in enumerate(blocks):
             debug_print(f"\n=== BLOCK {i+1}/{len(blocks)}: {block['lang'].upper()} ===")
+            debug_print(f"Block details - Type: {block['type']}, Is nested: {block.get('is_nested', False)}")
             
             if block['type'] == 'standalone':
                 self.execute_standalone_block(block)
             elif block['type'] == 'outer':
                 if block['is_nested']:
+                    debug_print("Using execute_outer_with_nested method")
                     self.execute_outer_with_nested(block)
                 else:
+                    debug_print("Using execute_standalone_block method")
                     self.execute_standalone_block(block)
             elif block['type'] == 'sequential':
                 self.execute_standalone_block(block)
@@ -267,6 +280,12 @@ class SharedStateOrchestrator:
         code = block['code']
         
         debug_print(f"Executing standalone {lang} block")
+        debug_print(f"Block type: {block.get('type', 'unknown')}, Is nested: {block.get('is_nested', False)}")
+        
+        # For nested blocks, make sure we use the processed code
+        if block.get('is_nested') and 'original_code' in block:
+            debug_print(f"Using processed code instead of original for nested block")
+            code = block['code']  # This should already be the processed version
         
         # Get variables this block references
         referenced_vars = self.extract_variable_references(code, lang)
@@ -278,11 +297,18 @@ class SharedStateOrchestrator:
         # Inject variable declarations
         injected_code = self.inject_variable_declarations(lang, available_vars)
         
-        # Detect variables this block will modify
-        modified_vars = self.extract_modified_variables(code, lang)
+        # Detect variables this block will modify - use original code for this analysis
+        original_code_for_analysis = block.get('original_code', code)
+        modified_vars = self.extract_modified_variables(original_code_for_analysis, lang)
+        
+        # Filter out loop variables and other locally scoped variables
+        if lang == 'c':
+            # Remove variables declared in for loops (like 'i' in 'for(int i = 0; ...)')
+            for_loop_vars = re.findall(r'for\s*\(\s*int\s+([a-zA-Z_][a-zA-Z0-9_]*)', original_code_for_analysis)
+            modified_vars = modified_vars - set(for_loop_vars)
         
         # Add output capture for modified variables
-        output_capture = self.inject_output_capture(lang, modified_vars, code)
+        output_capture = self.inject_output_capture(lang, modified_vars, original_code_for_analysis)
         
         # Combine code
         full_code = injected_code + code + output_capture
@@ -392,11 +418,13 @@ class SharedStateOrchestrator:
             if placeholder in final_code and output:
                 print(output)  # Print nested block output
         
-        # Execute outer block normally
+        # Execute outer block normally with processed code
         self.execute_standalone_block({
             'lang': lang,
-            'code': original_code,
-            'type': 'outer'
+            'code': code,  # Use processed code, not original_code
+            'type': 'outer',
+            'is_nested': True,
+            'original_code': original_code
         })
 
     def extract_variable_references(self, code: str, lang: str) -> set:
