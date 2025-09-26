@@ -9,32 +9,28 @@ import 'prismjs/components/prism-java';
 import 'prismjs/components/prism-python';
 import './index.css';
 
-// Enhanced polyglot code supporting all data types!
-const initialCode = `::c
-int nums[] = {50, 25, 75, 100, 10};
-float pi = 3.14f;
-char grade = 'A';
-char name[] = "Polyglot";
+// Your revolutionary nested polyglot syntax!
+const initialCode = `::py
+l=[]
+::/py
+
+::c
+int a[] = {1, 2, 3, 4, 5};
+for(int i = 0; i < 5; i++) {
+    ::py 
+    print("Print in python - ",a[i]) 
+    l.append(a[i]**2)
+    ::/py
+    
+    ::java 
+    System.out.println("Sout from Java - "+a[i]);
+    ::/java
+}
 ::/c
 
 ::py
-# Work with all data types seamlessly
-nums.sort()
-pi_doubled = pi * 2
-message = f"Student {name} got grade {grade}"
-stats = {"count": len(nums), "max": max(nums)}
-::/py
-
-::java
-System.out.println("=== Multi-Type Data Demo ===");
-System.out.println("Sorted numbers: ");
-for (int i = 0; i < nums.length; i++) {
-    System.out.print(nums[i] + " ");
-}
-System.out.println();
-System.out.println("Pi doubled: " + pi_doubled);
-System.out.println("Message: " + message);
-::/java`;
+print("Final list:", l)
+::/py`;
 
 // Simplified highlighting - just basic syntax highlighting
 const highlightCode = (code) => {
@@ -121,6 +117,28 @@ const useStore = create((set, get) => ({
       // Don't throw error, just use default debug mode
     }
   },
+  checkBackendFeatures: async () => {
+    try {
+      const response = await fetch(`${getBackendUrl()}/version`);
+      if (response.ok) {
+        const data = await response.json();
+        console.log('🎯 Backend Features Available:', data.features);
+        console.log('🎯 Backend Version:', data.version);
+        console.log('🎯 Orchestrator Type:', data.orchestrator);
+        
+        if (data.features?.nested_blocks) {
+          console.log('✅ Nested blocks supported!');
+        } else {
+          console.warn('⚠️ Nested blocks not supported by backend');
+        }
+        
+        return data;
+      }
+    } catch (error) {
+      console.warn('Cannot check backend features:', error.message);
+      return null;
+    }
+  },
   connect: () => {
     if (get().socket) return;
     const newSocket = new WebSocket(getWebSocketUrl());
@@ -148,15 +166,18 @@ const useStore = create((set, get) => ({
 const App = () => {
   const fileInputRef = useRef(null);
   const [isDragOver, setIsDragOver] = React.useState(false);
+  const [backendFeatures, setBackendFeatures] = React.useState(null);
   const { 
     code, setCode, outputLog, isRunning, socket, debugMode, 
-    connect, runCode, clearLog, toggleDebug, fetchDebugStatus 
+    connect, runCode, clearLog, toggleDebug, fetchDebugStatus, checkBackendFeatures 
   } = useStore();
 
   useEffect(() => { 
     if (!socket) connect(); 
     fetchDebugStatus();
-  }, [socket, connect, fetchDebugStatus]);
+    // Check backend features on startup
+    checkBackendFeatures().then(setBackendFeatures);
+  }, [socket, connect, fetchDebugStatus, checkBackendFeatures]);
 
   // Drag and drop functionality
   const handleDragOver = (e) => {
@@ -226,7 +247,14 @@ const App = () => {
     <div className="app-container">
       <header>
         <h1>Polyglot Interpreter</h1>
-        <div className={`status ${socket ? 'connected' : ''}`}>{socket ? 'Connected' : 'Disconnected'}</div>
+        <div className="status-container">
+          <div className={`status ${socket ? 'connected' : ''}`}>
+            {socket ? 'Connected' : 'Disconnected'}
+          </div>
+          {backendFeatures?.features?.nested_blocks && (
+            <div className="nested-status">🎯 Nested Execution</div>
+          )}
+        </div>
       </header>
       <div className="main-layout">
         <div className="controls-pane">
@@ -256,13 +284,27 @@ const App = () => {
             </svg>
             {debugMode ? 'Hide Debug' : 'Show Debug'}
           </button>
+          
+          <button className="test-button" onClick={() => checkBackendFeatures().then(features => {
+            if (features?.features?.nested_blocks) {
+              alert('✅ Backend connected! Nested execution supported.');
+            } else {
+              alert('⚠️ Backend connected but nested execution not supported.');
+            }
+          }).catch(() => alert('❌ Cannot connect to backend server.'))}>
+            <svg viewBox="0 0 24 24" width="20" height="20">
+              <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+            </svg>
+            Test Backend
+          </button>
                     <div className="instructions">
             <h2>How It Works</h2>
             <ol>
-              <li>Write code in sequential blocks: <code>::lang</code> to <code>::/lang</code>.</li>
-              <li>Variables are automatically passed between languages.</li>
-              <li>No need for manual JSON parsing - just use variables directly!</li>
-              <li>Languages execute in order: C → Python → Java.</li>
+              <li><strong>Sequential blocks:</strong> <code>::lang</code> to <code>::/lang</code> execute one after another.</li>
+              <li><strong>Nested blocks:</strong> Embed <code>::py</code> or <code>::java</code> inside <code>::c</code> loops!</li>
+              <li><strong>Cross-language variables:</strong> Variables automatically transfer between languages.</li>
+              <li><strong>Revolutionary feature:</strong> Mix languages within loops for complex workflows!</li>
+              <li><strong>Debug toggle:</strong> Show/hide execution details with the debug button.</li>
             </ol>
           </div>
         </div>
@@ -298,7 +340,11 @@ const App = () => {
                   'Variables being modified', 'Created:', 'Modified:', 'Passing to',
                   'Pipeline Finished', '==================================================',
                   'DEBUG Java modified vars:', 'DEBUG Java code:', '---',
-                  'PIPELINE EXECUTION SUMMARY', 'POLYGLOT EXECUTION PIPELINE'
+                  'PIPELINE EXECUTION SUMMARY', 'POLYGLOT EXECUTION PIPELINE',
+                  '🔍 Detected nested structure', 'NESTED EXECUTION PIPELINE',
+                  'Found C loop:', 'Found array', 'Loop iteration', 'Executing', 'nested block',
+                  'Python nested code:', 'Java nested code:', 'Full py code:', 'Full c code:', 'Full java code:',
+                  'NESTED EXECUTION SUMMARY', 'Nested execution completed'
                 ];
                 
                 return !debugPatterns.some(pattern => line.includes(pattern));
