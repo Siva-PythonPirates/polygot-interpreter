@@ -175,25 +175,54 @@ Message: Student Polyglot got grade A
 * Python (v3.8+)
 * Git
 
-### Setup
+### Local Development
 
 ```bash
 # Clone repo
-git clone https://github.com/YOUR_USERNAME/polyglot-interpreter.git
+git clone https://github.com/Siva-PythonPirates/polygot-interpreter.git
 cd polyglot-interpreter
 
 # Backend
 cd backend
 pip install -r requirements.txt
-uvicorn server:app --reload
+python server.py
 
-# Frontend
+# Frontend (in new terminal)
 cd frontend
 npm install
 npm run dev
 ```
 
 🌐 Open: **[http://localhost:5173](http://localhost:5173)**
+
+### Production Deployment
+
+#### Frontend (Vercel)
+- **Live Demo**: [https://polygot-interpreter-zcom.vercel.app/](https://polygot-interpreter-zcom.vercel.app/)
+- Auto-deploys from `main` branch
+- Environment variables configured for production backend
+
+#### Backend (GitHub Codespaces)
+- **API Endpoint**: `https://musical-waddle-rxwr97j7567cpjgw-8000.app.github.dev/`
+- Docker containers for C, Python, Java execution
+- WebSocket support for real-time communication
+
+```bash
+# Run in Codespaces
+cd backend
+python server.py
+```
+
+### Environment Configuration
+
+The frontend automatically detects the environment:
+- **Development**: Uses `http://localhost:8000`
+- **Production**: Uses Codespaces URL or environment variable
+
+**Environment Variables** (`.env`):
+```bash
+VITE_BACKEND_URL=https://your-codespace-url.app.github.dev
+```
 
 ---
 

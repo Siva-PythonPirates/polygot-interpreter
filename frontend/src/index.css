@@ -72,6 +72,30 @@ header h1 { font-size: 1.2rem; margin: 0; }
 /* --- Editor Pane (Final) --- */
 .code-editor { font-family: var(--font-mono) !important; font-size: 14px !important; min-height: 100%; }
 .code-editor > textarea { -webkit-text-fill-color: transparent !important; }
+
+/* Drag and Drop Styles */
+.editor-pane { 
+  position: relative; 
+  transition: background-color 0.2s ease;
+}
+.editor-pane.drag-over {
+  background-color: rgba(76, 175, 80, 0.1);
+  border: 2px dashed var(--accent-green);
+}
+.editor-pane.drag-over::after {
+  content: "Drop your .poly file here";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 1rem 2rem;
+  border-radius: 5px;
+  font-weight: bold;
+  pointer-events: none;
+  z-index: 1000;
+}
 .code-editor > textarea, .code-editor > pre { outline: none; white-space: pre-wrap !important; word-wrap: break-word !important; }
 
 /* Styles for the language tags */

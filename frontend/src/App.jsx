@@ -146,6 +146,7 @@ const useStore = create((set, get) => ({
 
 const App = () => {
   const fileInputRef = useRef(null);
+  const [isDragOver, setIsDragOver] = React.useState(false);
   const { 
     code, setCode, outputLog, isRunning, socket, debugMode, 
     connect, runCode, clearLog, toggleDebug, fetchDebugStatus 
@@ -155,14 +156,69 @@ const App = () => {
     if (!socket) connect(); 
     fetchDebugStatus();
   }, [socket, connect, fetchDebugStatus]);
+
+  // Drag and drop functionality
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    
+    const files = e.dataTransfer.files;
+    console.log('Files dropped:', files);
+    
+    if (files.length > 0) {
+      const file = files[0];
+      console.log('Processing dropped file:', file.name);
+      
+      // Simulate file input change event
+      handleFileChange({ target: { files: [file], value: '' } });
+    }
+  };
   
   const handleFileChange = (event) => {
+    console.log('File input triggered:', event.target.files);
+    
     const file = event.target.files[0];
-    if (file && file.name.endsWith('.poly')) {
+    if (!file) {
+      console.log('No file selected');
+      return;
+    }
+    
+    console.log('Selected file:', file.name, 'Type:', file.type, 'Size:', file.size);
+    
+    // Accept .poly files or any text file
+    if (file.name.endsWith('.poly') || file.type === 'text/plain' || file.type === '') {
       const reader = new FileReader();
-      reader.onload = (e) => setCode(e.target.result);
+      
+      reader.onload = (e) => {
+        console.log('File loaded successfully, content length:', e.target.result.length);
+        setCode(e.target.result);
+        // Reset file input to allow selecting the same file again
+        event.target.value = '';
+      };
+      
+      reader.onerror = (e) => {
+        console.error('Error reading file:', e);
+        alert('Error reading file. Please try again.');
+      };
+      
       reader.readAsText(file);
-    } else { alert('Please select a valid .poly file'); }
+    } else { 
+      console.log('Invalid file type:', file.type);
+      alert('Please select a valid .poly file or text file'); 
+    }
   };
 
   return (
@@ -178,11 +234,20 @@ const App = () => {
             <svg viewBox="0 0 24 24" width="20" height="20"><path d="M8 5v14l11-7z"/></svg>
             {isRunning ? 'Running...' : 'Run Pipeline'}
           </button>
-          <button className="upload-button" onClick={() => fileInputRef.current.click()}>
+          <button className="upload-button" onClick={() => {
+            console.log('Upload button clicked, triggering file input');
+            fileInputRef.current?.click();
+          }}>
             <svg viewBox="0 0 24 24" width="20" height="20"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg>
-            Upload .poly File
+            Upload File (.poly/.txt)
           </button>
-          <input type="file" ref={fileInputRef} onChange={handleFileChange} style={{ display: 'none' }} accept=".poly"/>
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleFileChange} 
+            style={{ display: 'none' }} 
+            accept=".poly,.txt,text/plain"
+          />
           
           <button className={`debug-button ${debugMode ? 'active' : ''}`} onClick={toggleDebug}>
             <svg viewBox="0 0 24 24" width="20" height="20">
@@ -200,7 +265,12 @@ const App = () => {
             </ol>
           </div>
         </div>
-        <div className="editor-pane">
+        <div 
+          className={`editor-pane ${isDragOver ? 'drag-over' : ''}`}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
           <Editor
             value={code}
             onValueChange={setCode}
