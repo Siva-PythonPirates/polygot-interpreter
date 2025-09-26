@@ -38,20 +38,26 @@ async def get_version():
     """Get backend version and features"""
     # Test if nested functionality is available
     try:
-        from advanced_orchestrator import parse_nested_structure
-        nested_available = True
+        from advanced_orchestrator import SharedStateOrchestrator
+        # Test if orchestrator has nested methods
+        orchestrator = SharedStateOrchestrator()
+        nested_available = hasattr(orchestrator, 'execute_nested_blocks')
     except ImportError:
         nested_available = False
     
     return {
-        "version": "3.0-nested",
-        "build_date": "2025-09-26", 
+        "version": "4.0-revolutionary",
+        "build_date": "2025-09-27", 
         "features": {
             "sequential_execution": True,
             "nested_blocks": nested_available,
+            "cross_language_conversion": nested_available,
             "cross_language_variables": True,
-            "debug_mode": True
+            "debug_mode": True,
+            "single_language_execution": True,
+            "docker_containerized": True
         },
+        "orchestrator": "SharedStateOrchestrator" if nested_available else "Legacy",
         "status": "ready"
     }
 

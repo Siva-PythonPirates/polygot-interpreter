@@ -113,33 +113,10 @@ print("Final list:", l)
 ::/py
 """
 
-def test_simplified_cases():
-    """Test the working orchestrator with basic cases"""
-    import importlib.util
-    import sys
-    import os
-    
-    # Import from the file with space in name (working_orchestrator_final.py)
-    # Note: The filename has a trailing space which requires special import handling
-    working_file = "working_orchestrator_final.py"
-    
-    if os.path.exists(working_file):
-        spec = importlib.util.spec_from_file_location(
-            "working_orchestrator_final", 
-            working_file
-        )
-        working_orchestrator_final = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(working_orchestrator_final)
-        
-        WorkingOrchestrator = working_orchestrator_final.WorkingOrchestrator
-        set_debug_mode = working_orchestrator_final.set_debug_mode
-    else:
-        raise FileNotFoundError(f"Could not find {working_file}")
-        # Alternative: try without space
-        # from working_orchestrator_final import WorkingOrchestrator, set_debug_mode
-    
-    # Enable debug mode for detailed output
-    set_debug_mode(True)
+def test_all_execution_types():
+    """Test all execution types with debug ON and OFF"""
+    from advanced_orchestrator import SharedStateOrchestrator
+    import advanced_orchestrator
     
     test_cases = [
         ("Single Java", single_java_fixed),
@@ -150,20 +127,53 @@ def test_simplified_cases():
         ("Sequential Workaround", sequential_workaround)
     ]
     
+    # Test with DEBUG_MODE = True
+    print("🟢" + "="*80)
+    print("🟢 TESTING ALL CASES WITH DEBUG_MODE = TRUE")
+    print("🟢" + "="*80)
+    
+    advanced_orchestrator.DEBUG_MODE = True
+    
     for test_name, code in test_cases:
-        print(f"\n{'='*50}")
-        print(f"TESTING: {test_name}")
-        print(f"{'='*50}")
+        print(f"\n{'🔧'*50}")
+        print(f"🔧 TESTING: {test_name} (DEBUG ON)")
+        print(f"{'🔧'*50}")
         
-        orchestrator = WorkingOrchestrator()
+        orchestrator = SharedStateOrchestrator()
         try:
             orchestrator.parse_and_execute(code)
         except Exception as e:
-            print(f"Error in {test_name}: {e}")
+            print(f"❌ Error in {test_name}: {e}")
         
-        print(f"{'='*50}")
-        print(f"COMPLETED: {test_name}")
-        print(f"{'='*50}\n")
+        print(f"{'✅'*50}")
+        print(f"✅ COMPLETED: {test_name} (DEBUG ON)")
+        print(f"{'✅'*50}\n")
+    
+    # Test with DEBUG_MODE = False
+    print("\n\n🔴" + "="*80)
+    print("🔴 TESTING ALL CASES WITH DEBUG_MODE = FALSE")
+    print("🔴" + "="*80)
+    
+    advanced_orchestrator.DEBUG_MODE = False
+    
+    for test_name, code in test_cases:
+        print(f"\n{'🎯'*50}")
+        print(f"🎯 TESTING: {test_name} (DEBUG OFF)")
+        print(f"{'🎯'*50}")
+        
+        orchestrator = SharedStateOrchestrator()
+        try:
+            orchestrator.parse_and_execute(code)
+        except Exception as e:
+            print(f"❌ Error in {test_name}: {e}")
+        
+        print(f"{'✅'*50}")
+        print(f"✅ COMPLETED: {test_name} (DEBUG OFF)")
+        print(f"{'✅'*50}\n")
+    
+    print("\n🏁" + "="*80)
+    print("🏁 ALL TESTS COMPLETED - BOTH DEBUG MODES TESTED")
+    print("🏁" + "="*80)
 
 if __name__ == "__main__":
-    test_simplified_cases()
+    test_all_execution_types()
